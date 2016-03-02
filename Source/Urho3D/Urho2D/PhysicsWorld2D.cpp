@@ -54,7 +54,9 @@ PhysicsWorld2D::PhysicsWorld2D(Context* context) :
     debugRenderer_(0),
     physicsStepping_(false),
     applyingTransforms_(false),
-    updateEnabled_(true)
+    updateEnabled_(true),
+    timeLeft_(0.0f),
+    fixedTimeStep_(0.016f)
 {
     // Set default debug draw flags
     m_drawFlags = e_shapeBit;
@@ -66,8 +68,8 @@ PhysicsWorld2D::PhysicsWorld2D(Context* context) :
     // Set debug draw
     world_->SetDebugDraw(this);
 
-    world_->SetContinuousPhysics(true);
-    world_->SetSubStepping(true);
+    world_->SetContinuousPhysics(false);
+    world_->SetSubStepping(false);
 }
 
 PhysicsWorld2D::~PhysicsWorld2D()
@@ -235,8 +237,15 @@ void PhysicsWorld2D::Update(float timeStep)
     eventData[P_TIMESTEP] = timeStep;
     SendEvent(E_PHYSICSPRESTEP, eventData);
 
+    timeLeft_ += timeStep;
+
     physicsStepping_ = true;
-    world_->Step(timeStep, velocityIterations_, positionIterations_);
+    while(timeLeft_ > fixedTimeStep_)
+    {
+        world_->Step(fixedTimeStep_, velocityIterations_, positionIterations_);
+
+        timeLeft_ -= fixedTimeStep_;
+    }
     physicsStepping_ = false;
 
     // Apply world transforms. Unparented transforms first
