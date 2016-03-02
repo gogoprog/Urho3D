@@ -95,3 +95,7 @@ configure*
 *.log
 *.bak
 Thumbs.db
+
+/build/
+/.atom*
+
