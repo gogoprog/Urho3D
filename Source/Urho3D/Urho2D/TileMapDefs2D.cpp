@@ -141,12 +141,18 @@ bool PropertySet2D::HasProperty(const String& name) const
 
 const String& PropertySet2D::GetProperty(const String& name) const
 {
-    HashMap<String, String>::ConstIterator i = nameToValueMapping_.Find(name);
+    VariantMap::ConstIterator i = nameToValueMapping_.Find(name);
     if (i == nameToValueMapping_.End())
         return String::EMPTY;
 
-    return i->second_;
+    return i->second_.GetString();
 }
+
+const VariantMap& PropertySet2D::GetProperties() const
+{
+    return nameToValueMapping_;
+}
+
 
 Tile2D::Tile2D() :
     gid_(0)

@@ -111,9 +111,10 @@ public:
     /// Return property value.
     const String& GetProperty(const String& name) const;
 
+    const VariantMap& GetProperties() const;
 protected:
     /// Property name to property value mapping.
-    HashMap<String, String> nameToValueMapping_;
+    VariantMap nameToValueMapping_;
 };
 
 /// Tile define.
@@ -133,6 +134,7 @@ public:
     /// Return property.
     const String& GetProperty(const String& name) const;
 
+    const VariantMap& GetProperties() const { return propertySet_->GetProperties(); }
 private:
     friend class TmxTileLayer2D;
 
@@ -164,6 +166,8 @@ public:
 
     /// Return size (for rectangle and ellipse).
     const Vector2& GetSize() const { return size_; }
+
+    const VariantMap& GetProperties() const { return propertySet_->GetProperties(); }
 
     /// Return number of points (use for script).
     unsigned GetNumPoints() const;
