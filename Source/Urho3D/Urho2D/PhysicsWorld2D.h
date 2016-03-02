@@ -267,6 +267,10 @@ private:
     Vector<ContactInfo> beginContactInfos_;
     /// End contact infos.
     Vector<ContactInfo> endContactInfos_;
+
+    float
+        timeLeft_,
+        fixedTimeStep_;
 };
 
 }
