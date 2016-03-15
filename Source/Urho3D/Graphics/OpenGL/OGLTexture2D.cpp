@@ -246,7 +246,7 @@ bool Texture2D::SetData(unsigned level, int x, int y, int width, int height, con
     graphics_->SetTextureForUpdate(this);
 
     bool wholeLevel = x == 0 && y == 0 && width == levelWidth && height == levelHeight;
-    unsigned format = GetSRGB() ? GetSRGBFormat(format_) : format_;
+    unsigned format = GetSRGB() ? GetSRGBFormat(format_) : (format_ == GL_BGRA ? GL_RGBA : format_);
 
     if (!IsCompressed())
     {
@@ -455,7 +455,7 @@ bool Texture2D::Create()
         return true;
     }
 
-    unsigned format = GetSRGB() ? GetSRGBFormat(format_) : format_;
+    unsigned format = GetSRGB() ? GetSRGBFormat(format_) : (format_ == GL_BGRA ? GL_RGBA : format_);
     unsigned externalFormat = GetExternalFormat(format_);
     unsigned dataType = GetDataType(format_);
 

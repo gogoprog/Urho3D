@@ -393,6 +393,8 @@ unsigned Texture::GetExternalFormat(unsigned format)
         return GL_RGBA;
     else if (format == GL_SRGB_EXT)
         return GL_RGB;
+    else if (format == GL_BGRA)
+        return GL_BGRA;
     else
         return format;
 #else
