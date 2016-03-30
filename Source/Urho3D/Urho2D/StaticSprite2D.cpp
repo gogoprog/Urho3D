@@ -47,7 +47,8 @@ StaticSprite2D::StaticSprite2D(Context* context) :
     color_(Color::WHITE),
     useHotSpot_(false),
     hotSpot_(0.5f, 0.5f),
-    useDrawRect_(false)
+    useDrawRect_(false),
+    useTextureRect_(false)
 {
     sourceBatches_.Resize(1);
     sourceBatches_[0].owner_ = this;
@@ -91,6 +92,13 @@ void StaticSprite2D::SetDrawRect(const Rect& rect)
 {
     drawRect_ = rect;
     useDrawRect_ = true;
+    sourceBatchesDirty_ = true;
+}
+
+void StaticSprite2D::SetTextureRect(const Rect& rect)
+{
+    textureRect_ = rect;
+    useTextureRect_ = true;
     sourceBatchesDirty_ = true;
 }
 
@@ -248,9 +256,11 @@ void StaticSprite2D::UpdateSourceBatches()
     if (!sprite_)
         return;
 
-    Rect textureRect;
-    if (!sprite_->GetTextureRectangle(textureRect, flipX_, flipY_))
-        return;
+    if(!useTextureRect_)
+    {
+        if (!sprite_->GetTextureRectangle(textureRect_, flipX_, flipY_))
+            return;
+    }
 
     /*
     V1---------V2
@@ -273,10 +283,10 @@ void StaticSprite2D::UpdateSourceBatches()
     vertex2.position_ = worldTransform * Vector3(drawRect_.max_.x_, drawRect_.max_.y_, 0.0f);
     vertex3.position_ = worldTransform * Vector3(drawRect_.max_.x_, drawRect_.min_.y_, 0.0f);
 
-    vertex0.uv_ = textureRect.min_;
-    vertex1.uv_ = Vector2(textureRect.min_.x_, textureRect.max_.y_);
-    vertex2.uv_ = textureRect.max_;
-    vertex3.uv_ = Vector2(textureRect.max_.x_, textureRect.min_.y_);
+    vertex0.uv_ = textureRect_.min_;
+    vertex1.uv_ = Vector2(textureRect_.min_.x_, textureRect_.max_.y_);
+    vertex2.uv_ = textureRect_.max_;
+    vertex3.uv_ = Vector2(textureRect_.max_.x_, textureRect_.min_.y_);
 
     vertex0.color_ = vertex1.color_ = vertex2.color_ = vertex3.color_ = color_.ToUInt();
 

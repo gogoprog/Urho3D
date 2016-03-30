@@ -46,6 +46,8 @@ public:
     void SetSprite(Sprite2D* sprite);
     /// Set draw rectangle.
     void SetDrawRect(const Rect &rect);
+    /// Set texture rectangle.
+    void SetTextureRect(const Rect &rect);
     /// Set blend mode.
     void SetBlendMode(BlendMode blendMode);
     /// Set flip.
@@ -70,6 +72,9 @@ public:
 
     /// Return draw rect.
     const Rect& GetDrawRect() const { return drawRect_; }
+
+    /// Return texture rect.
+    const Rect& GetTextureRect() const { return textureRect_; }
 
     /// Return blend mode.
     BlendMode GetBlendMode() const { return blendMode_; }
@@ -134,9 +139,12 @@ protected:
     SharedPtr<Material> customMaterial_;
     /// Draw rectangle.
     Rect drawRect_;
-    //// Use drawRect.
+    /// Use drawRect.
     bool useDrawRect_;
-
+    /// Texture rectangle.
+    Rect textureRect_;
+    /// Use textureRect.
+    bool useTextureRect_;
 };
 
 }
