@@ -46,7 +46,8 @@ StaticSprite2D::StaticSprite2D(Context* context) :
     flipY_(false),
     color_(Color::WHITE),
     useHotSpot_(false),
-    hotSpot_(0.5f, 0.5f)
+    hotSpot_(0.5f, 0.5f),
+    useDrawRect_(false)
 {
     sourceBatches_.Resize(1);
     sourceBatches_[0].owner_ = this;
@@ -82,6 +83,15 @@ void StaticSprite2D::SetSprite(Sprite2D* sprite)
 
     sourceBatchesDirty_ = true;
     MarkNetworkUpdate();
+
+    UpdateDrawRect();
+}
+
+void StaticSprite2D::SetDrawRect(const Rect& rect)
+{
+    drawRect_ = rect;
+    useDrawRect_ = true;
+    sourceBatchesDirty_ = true;
 }
 
 void StaticSprite2D::SetBlendMode(BlendMode blendMode)
@@ -145,6 +155,7 @@ void StaticSprite2D::SetUseHotSpot(bool useHotSpot)
     useHotSpot_ = useHotSpot;
     sourceBatchesDirty_ = true;
     MarkNetworkUpdate();
+    UpdateDrawRect();
 }
 
 void StaticSprite2D::SetHotSpot(const Vector2& hotspot)
@@ -159,6 +170,8 @@ void StaticSprite2D::SetHotSpot(const Vector2& hotspot)
         sourceBatchesDirty_ = true;
         MarkNetworkUpdate();
     }
+
+    UpdateDrawRect();
 }
 
 void StaticSprite2D::SetCustomMaterial(Material* customMaterial)
@@ -235,18 +248,6 @@ void StaticSprite2D::UpdateSourceBatches()
     if (!sprite_)
         return;
 
-    Rect drawRect;
-    if (useHotSpot_)
-    {
-        if (!sprite_->GetDrawRectangle(drawRect, hotSpot_, flipX_, flipY_))
-            return;
-    }
-    else
-    {
-        if (!sprite_->GetDrawRectangle(drawRect, flipX_, flipY_))
-            return;
-    }
-
     Rect textureRect;
     if (!sprite_->GetTextureRectangle(textureRect, flipX_, flipY_))
         return;
@@ -267,10 +268,10 @@ void StaticSprite2D::UpdateSourceBatches()
 
     // Convert to world space
     const Matrix3x4& worldTransform = node_->GetWorldTransform();
-    vertex0.position_ = worldTransform * Vector3(drawRect.min_.x_, drawRect.min_.y_, 0.0f);
-    vertex1.position_ = worldTransform * Vector3(drawRect.min_.x_, drawRect.max_.y_, 0.0f);
-    vertex2.position_ = worldTransform * Vector3(drawRect.max_.x_, drawRect.max_.y_, 0.0f);
-    vertex3.position_ = worldTransform * Vector3(drawRect.max_.x_, drawRect.min_.y_, 0.0f);
+    vertex0.position_ = worldTransform * Vector3(drawRect_.min_.x_, drawRect_.min_.y_, 0.0f);
+    vertex1.position_ = worldTransform * Vector3(drawRect_.min_.x_, drawRect_.max_.y_, 0.0f);
+    vertex2.position_ = worldTransform * Vector3(drawRect_.max_.x_, drawRect_.max_.y_, 0.0f);
+    vertex3.position_ = worldTransform * Vector3(drawRect_.max_.x_, drawRect_.min_.y_, 0.0f);
 
     vertex0.uv_ = textureRect.min_;
     vertex1.uv_ = Vector2(textureRect.min_.x_, textureRect.max_.y_);
@@ -297,6 +298,23 @@ void StaticSprite2D::UpdateMaterial()
             sourceBatches_[0].material_ = renderer_->GetMaterial(sprite_->GetTexture(), blendMode_);
         else
             sourceBatches_[0].material_ = 0;
+    }
+}
+
+void StaticSprite2D::UpdateDrawRect()
+{
+    if (!useDrawRect_)
+    {
+        if (useHotSpot_)
+        {
+            if (!sprite_->GetDrawRectangle(drawRect_, hotSpot_, flipX_, flipY_))
+                return;
+        }
+        else
+        {
+            if (!sprite_->GetDrawRectangle(drawRect_, flipX_, flipY_))
+                return;
+        }
     }
 }
 

@@ -44,6 +44,8 @@ public:
 
     /// Set sprite.
     void SetSprite(Sprite2D* sprite);
+    /// Set draw rectangle.
+    void SetDrawRect(const Rect &rect);
     /// Set blend mode.
     void SetBlendMode(BlendMode blendMode);
     /// Set flip.
@@ -65,6 +67,9 @@ public:
 
     /// Return sprite.
     Sprite2D* GetSprite() const;
+
+    /// Return draw rect.
+    const Rect& GetDrawRect() const { return drawRect_; }
 
     /// Return blend mode.
     BlendMode GetBlendMode() const { return blendMode_; }
@@ -108,6 +113,8 @@ protected:
     virtual void UpdateSourceBatches();
     /// Update material.
     void UpdateMaterial();
+    /// Update drawRect.
+    void UpdateDrawRect();
 
     /// Sprite.
     SharedPtr<Sprite2D> sprite_;
@@ -125,6 +132,11 @@ protected:
     Vector2 hotSpot_;
     /// Custom material.
     SharedPtr<Material> customMaterial_;
+    /// Draw rectangle.
+    Rect drawRect_;
+    //// Use drawRect.
+    bool useDrawRect_;
+
 };
 
 }
