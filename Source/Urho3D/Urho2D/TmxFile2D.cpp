@@ -447,8 +447,8 @@ bool TmxFile2D::SetInfo(Orientation2D orientation, int width, int height, float 
     info_.orientation_ = orientation;
     info_.width_ = width;
     info_.height_ = height;
-    info_.tileWidth_ = tileWidth * PIXEL_SIZE;
-    info_.tileHeight_ = tileHeight * PIXEL_SIZE;
+    info_.tileWidth_ = tileWidth;
+    info_.tileHeight_ = tileHeight;
     return true;
 }
 
