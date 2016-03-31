@@ -95,5 +95,5 @@ configure*
 *.bak
 Thumbs.db
 .directory
-/build/
+/build*
 /.atom*
