@@ -2603,10 +2603,12 @@ unsigned Graphics::GetRGBAFormat()
     return GL_RGBA;
 }
 
+#ifdef GL_BGRA
 unsigned Graphics::GetBGRAFormat()
 {
     return GL_BGRA;
 }
+#endif
 
 unsigned Graphics::GetRGBA16Format()
 {
