@@ -164,15 +164,6 @@ static const D3D11_FILL_MODE d3dFillMode[] =
     D3D11_FILL_WIREFRAME // Point fill mode not supported
 };
 
-static unsigned GetD3DColor(const Color& color)
-{
-    unsigned r = (unsigned)(Clamp(color.r_ * 255.0f, 0.0f, 255.0f));
-    unsigned g = (unsigned)(Clamp(color.g_ * 255.0f, 0.0f, 255.0f));
-    unsigned b = (unsigned)(Clamp(color.b_ * 255.0f, 0.0f, 255.0f));
-    unsigned a = (unsigned)(Clamp(color.a_ * 255.0f, 0.0f, 255.0f));
-    return (((a) & 0xff) << 24) | (((r) & 0xff) << 16) | (((g) & 0xff) << 8) | ((b) & 0xff);
-}
-
 static void GetD3DPrimitiveType(unsigned elementCount, PrimitiveType type, unsigned& primitiveCount,
     D3D_PRIMITIVE_TOPOLOGY& d3dPrimitiveType)
 {
@@ -431,7 +422,7 @@ bool Graphics::SetMode(int width, int height, bool fullscreen, bool borderless, 
     if (maximize)
     {
         Maximize();
-        SDL_GetWindowSize(impl_->window_, &width, &height);
+        SDL_GL_GetDrawableSize(impl_->window_, &width, &height);
     }
 
     if (!impl_->device_ || multiSample_ != multiSample)
@@ -620,7 +611,7 @@ bool Graphics::BeginFrame()
     {
         int width, height;
 
-        SDL_GetWindowSize(impl_->window_, &width, &height);
+        SDL_GL_GetDrawableSize(impl_->window_, &width, &height);
         if (width != width_ || height != height_)
             SetMode(width, height);
     }
@@ -1849,7 +1840,7 @@ void Graphics::WindowResized()
 
     int newWidth, newHeight;
 
-    SDL_GetWindowSize(impl_->window_, &newWidth, &newHeight);
+    SDL_GL_GetDrawableSize(impl_->window_, &newWidth, &newHeight);
     if (newWidth == width_ && newHeight == height_)
         return;
 
@@ -2202,7 +2193,7 @@ void Graphics::AdjustWindow(int& newWidth, int& newHeight, bool& newFullscreen, 
         if (!newWidth || !newHeight)
         {
             SDL_MaximizeWindow(impl_->window_);
-            SDL_GetWindowSize(impl_->window_, &newWidth, &newHeight);
+            SDL_GL_GetDrawableSize(impl_->window_, &newWidth, &newHeight);
         }
         else
             SDL_SetWindowSize(impl_->window_, newWidth, newHeight);
@@ -2213,7 +2204,7 @@ void Graphics::AdjustWindow(int& newWidth, int& newHeight, bool& newFullscreen, 
     else
     {
         // If external window, must ask its dimensions instead of trying to set them
-        SDL_GetWindowSize(impl_->window_, &newWidth, &newHeight);
+        SDL_GL_GetDrawableSize(impl_->window_, &newWidth, &newHeight);
         newFullscreen = false;
     }
 }
@@ -2295,11 +2286,9 @@ bool Graphics::CreateDevice(int width, int height, int multiSample)
         URHO3D_LOGD3DERROR("Failed to create D3D11 swap chain", hr);
         return false;
     }
-    else if (impl_->swapChain_)
-    {
-        multiSample_ = multiSample;
-        return true;
-    }
+
+    multiSample_ = multiSample;
+    return true;
 }
 
 bool Graphics::UpdateSwapChain(int width, int height)
