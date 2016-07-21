@@ -32,6 +32,7 @@
 #include <mmsystem.h>
 #elif __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
+#include <unistd.h>
 #else
 #include <sys/time.h>
 #include <unistd.h>
