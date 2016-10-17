@@ -282,7 +282,7 @@ void RigidBody2D::SetAwake(bool awake)
 
 void RigidBody2D::SetLinearVelocity(const Vector2& linearVelocity)
 {
-    b2Vec2 b2linearVelocity = ToB2Vec2(linearVelocity);
+    b2Vec2 b2linearVelocity = ToB2Vec2(linearVelocity / 128.0f);
     if (bodyDef_.linearVelocity == b2linearVelocity)
         return;
 
@@ -345,7 +345,7 @@ void RigidBody2D::CreateBody()
     if (!physicsWorld_ || !physicsWorld_->GetWorld())
         return;
 
-    bodyDef_.position = ToB2Vec2(node_->GetWorldPosition());;
+    bodyDef_.position = ToB2Vec2(node_->GetWorldPosition() / 128.0f);;
     bodyDef_.angle = node_->GetWorldRotation().RollAngle() * M_DEGTORAD;
 
     body_ = physicsWorld_->GetWorld()->CreateBody(&bodyDef_);
@@ -409,8 +409,8 @@ void RigidBody2D::ApplyWorldTransform()
 
     const b2Transform& transform = body_->GetTransform();
     Vector3 newWorldPosition = node_->GetWorldPosition();
-    newWorldPosition.x_ = transform.p.x;
-    newWorldPosition.y_ = transform.p.y;
+    newWorldPosition.x_ = transform.p.x * 128.0f;
+    newWorldPosition.y_ = transform.p.y * 128.0f;
     Quaternion newWorldRotation(transform.q.GetAngle() * M_RADTODEG, Vector3::FORWARD);
 
     if (parentRigidBody)
@@ -569,7 +569,7 @@ void RigidBody2D::OnMarkedDirty(Node* node)
     }
 
     // Check if transform has changed from the last one set in ApplyWorldTransform()
-    b2Vec2 newPosition = ToB2Vec2(node_->GetWorldPosition());
+    b2Vec2 newPosition = ToB2Vec2(node_->GetWorldPosition() / 128.0f);
     float newAngle = node_->GetWorldRotation().RollAngle() * M_DEGTORAD;
     if (newPosition != bodyDef_.position || newAngle != bodyDef_.angle)
     {
