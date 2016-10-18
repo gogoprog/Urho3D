@@ -42,7 +42,7 @@ CollisionBox2D::CollisionBox2D(Context* context) :
 {
     float halfWidth = size_.x_ * 0.5f * cachedWorldScale_.x_;
     float halfHeight = size_.y_ * 0.5f * cachedWorldScale_.y_;
-    boxShape_.SetAsBox(halfWidth, halfHeight);
+    boxShape_.SetAsBox(halfWidth / 128.0f, halfHeight / 128.0f);
     fixtureDef_.shape = &boxShape_;
 }
 
@@ -117,12 +117,12 @@ void CollisionBox2D::RecreateFixture()
     float worldScaleY = cachedWorldScale_.y_;
     float halfWidth = size_.x_ * 0.5f * worldScaleX;
     float halfHeight = size_.y_ * 0.5f * worldScaleY;
-    Vector2 scaledCenter = center_ * Vector2(worldScaleX, worldScaleY);
+    Vector2 scaledCenter = center_ * Vector2(worldScaleX, worldScaleY) / 128.0f;
 
     if (scaledCenter == Vector2::ZERO && angle_ == 0.0f)
-        boxShape_.SetAsBox(halfWidth, halfHeight);
+        boxShape_.SetAsBox(halfWidth / 128.0f, halfHeight / 128.0f);
     else
-        boxShape_.SetAsBox(halfWidth, halfHeight, ToB2Vec2(scaledCenter), angle_ * M_DEGTORAD);
+        boxShape_.SetAsBox(halfWidth / 128.0f, halfHeight / 128.0f, ToB2Vec2(scaledCenter), angle_ * M_DEGTORAD);
 
     CreateFixture();
 }

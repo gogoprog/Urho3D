@@ -152,7 +152,7 @@ void RigidBody2D::SetInertia(float inertia)
 
 void RigidBody2D::SetMassCenter(const Vector2& center)
 {
-    b2Vec2 b2Center = ToB2Vec2(center);
+    b2Vec2 b2Center = ToB2Vec2(center / 128.0f);
     if (massData_.center == b2Center)
         return;
 
