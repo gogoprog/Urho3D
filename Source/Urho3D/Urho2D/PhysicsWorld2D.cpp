@@ -456,8 +456,11 @@ void PhysicsWorld2D::Raycast(PODVector<PhysicsRaycastResult2D>& results, const V
 {
     results.Clear();
 
-    RayCastCallback callback(results, startPoint, collisionMask);
-    world_->RayCast(&callback, ToB2Vec2(startPoint), ToB2Vec2(endPoint));
+    auto correctedStartPoint = startPoint / 128.0f;
+    auto correctedEndPoint = endPoint / 128.0f;
+
+    RayCastCallback callback(results, correctedStartPoint, collisionMask);
+    world_->RayCast(&callback, ToB2Vec2(correctedStartPoint), ToB2Vec2(correctedEndPoint));
 }
 
 // Single ray cast call back class.
@@ -513,8 +516,11 @@ void PhysicsWorld2D::RaycastSingle(PhysicsRaycastResult2D& result, const Vector2
 {
     result.body_ = 0;
 
-    SingleRayCastCallback callback(result, startPoint, collisionMask);
-    world_->RayCast(&callback, ToB2Vec2(startPoint), ToB2Vec2(endPoint));
+    auto correctedStartPoint = startPoint / 128.0f;
+    auto correctedEndPoint = endPoint / 128.0f;
+
+    SingleRayCastCallback callback(result, correctedStartPoint, collisionMask);
+    world_->RayCast(&callback, ToB2Vec2(correctedStartPoint), ToB2Vec2(correctedEndPoint));
 }
 
 // Point query callback class.
@@ -562,12 +568,14 @@ private:
 
 RigidBody2D* PhysicsWorld2D::GetRigidBody(const Vector2& point, unsigned collisionMask)
 {
-    PointQueryCallback callback(ToB2Vec2(point), collisionMask);
+    auto correctedPoint = point / 128.0f;
+
+    PointQueryCallback callback(ToB2Vec2(correctedPoint), collisionMask);
 
     b2AABB b2Aabb;
     Vector2 delta(M_EPSILON, M_EPSILON);
-    b2Aabb.lowerBound = ToB2Vec2(point - delta);
-    b2Aabb.upperBound = ToB2Vec2(point + delta);
+    b2Aabb.lowerBound = ToB2Vec2(correctedPoint - delta);
+    b2Aabb.upperBound = ToB2Vec2(correctedPoint + delta);
 
     world_->QueryAABB(&callback, b2Aabb);
     return callback.GetRigidBody();
@@ -583,7 +591,7 @@ RigidBody2D* PhysicsWorld2D::GetRigidBody(int screenX, int screenY, unsigned col
         if (viewport && viewport->GetScene() == GetScene())
         {
             Vector3 worldPoint = viewport->ScreenToWorldPoint(screenX, screenY, 0.0f);
-            return GetRigidBody(Vector2(worldPoint.x_, worldPoint.y_), collisionMask);
+            return GetRigidBody(Vector2(worldPoint.x_ / 128.0f, worldPoint.y_ / 128.0f), collisionMask);
         }
     }
 
@@ -628,8 +636,8 @@ void PhysicsWorld2D::GetRigidBodies(PODVector<RigidBody2D*>& results, const Rect
 
     b2AABB b2Aabb;
     Vector2 delta(M_EPSILON, M_EPSILON);
-    b2Aabb.lowerBound = ToB2Vec2(aabb.min_ - delta);
-    b2Aabb.upperBound = ToB2Vec2(aabb.max_ + delta);
+    b2Aabb.lowerBound = ToB2Vec2(aabb.min_ / 128.0f - delta);
+    b2Aabb.upperBound = ToB2Vec2(aabb.max_ / 128.0f + delta);
 
     world_->QueryAABB(&callback, b2Aabb);
 }
