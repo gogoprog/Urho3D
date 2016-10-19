@@ -95,8 +95,8 @@ void CollisionCircle2D::RecreateFixture()
 
     // Only use scale in x axis for circle
     float worldScale = cachedWorldScale_.x_;
-    circleShape_.m_radius = radius_ * worldScale;
-    circleShape_.m_p = ToB2Vec2(center_ * worldScale);
+    circleShape_.m_radius = radius_ * worldScale / 128.0f;
+    circleShape_.m_p = ToB2Vec2(center_ * worldScale / 128.0f);
 
     CreateFixture();
 }

@@ -433,7 +433,7 @@ public:
             return true;
 
         PhysicsRaycastResult2D result;
-        result.position_ = ToVector2(point);
+        result.position_ = ToVector2(point) * 128.0f;
         result.normal_ = ToVector2(normal);
         result.distance_ = (result.position_ - startPoint_).Length();
         result.body_ = (RigidBody2D*)(fixture->GetBody()->GetUserData());
@@ -491,7 +491,7 @@ public:
         {
             minDistance_ = distance;
 
-            result_.position_ = ToVector2(point);
+            result_.position_ = ToVector2(point) * 128.0f;
             result_.normal_ = ToVector2(normal);
             result_.distance_ = distance;
             result_.body_ = (RigidBody2D*)(fixture->GetBody()->GetUserData());
