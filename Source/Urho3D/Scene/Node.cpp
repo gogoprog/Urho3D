@@ -353,7 +353,7 @@ void Node::AddTag(const String& tag)
     // Check if tag empty or already added
     if (tag.Empty() || HasTag(tag))
         return;
-    
+
     // Add tag
     tags_.Push(tag);
 
@@ -405,7 +405,7 @@ bool Node::RemoveTag(const String& tag)
         eventData[P_TAG] = tag;
         scene_->SendEvent(E_NODETAGREMOVED, eventData);
     }
-    
+
     // Sync
     MarkNetworkUpdate();
     return true;
@@ -1745,8 +1745,8 @@ void Node::AddComponent(Component* component, unsigned id, CreateMode mode)
 
     components_.Push(SharedPtr<Component>(component));
 
-    if (component->GetNode())
-        URHO3D_LOGWARNING("Component " + component->GetTypeName() + " already belongs to a node!");
+    /*if (component->GetNode())
+        URHO3D_LOGWARNING("Component " + component->GetTypeName() + " already belongs to a node!");*/
 
     component->SetNode(this);
 
