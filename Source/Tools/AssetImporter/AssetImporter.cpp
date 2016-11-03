@@ -48,6 +48,7 @@
 #include <windows.h>
 #endif
 
+#include <assimp/config.h>
 #include <assimp/cimport.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -72,6 +73,7 @@ struct OutModel
     PODVector<aiMesh*> meshes_;
     PODVector<aiNode*> meshNodes_;
     PODVector<aiNode*> bones_;
+    PODVector<aiNode*> pivotlessBones_;
     PODVector<aiAnimation*> animations_;
     PODVector<float> boneRadii_;
     PODVector<BoundingBox> boneHitboxes_;
@@ -88,6 +90,58 @@ struct OutScene
     PODVector<aiNode*> nodes_;
     PODVector<unsigned> nodeModelIndices_;
 };
+
+// FBX transform chain
+enum TransformationComp
+{
+    TransformationComp_Translation = 0,
+    TransformationComp_RotationOffset,
+    TransformationComp_RotationPivot,
+    TransformationComp_PreRotation,
+    TransformationComp_Rotation,
+    TransformationComp_PostRotation,
+    TransformationComp_RotationPivotInverse,
+
+    TransformationComp_ScalingOffset,
+    TransformationComp_ScalingPivot,
+    TransformationComp_Scaling,
+
+    // Not checking these
+    // They are typically flushed out in the fbxconverter, but there
+    // might be cases where they're not, hence, leaving them.
+    #ifdef EXT_TRANSFORMATION_CHECK
+    TransformationComp_ScalingPivotInverse,
+    TransformationComp_GeometricTranslation,
+    TransformationComp_GeometricRotation,
+    TransformationComp_GeometricScaling,
+    #endif
+
+    TransformationComp_MAXIMUM
+};
+
+const char *transformSuffix[TransformationComp_MAXIMUM] =
+{
+    "Translation",          // TransformationComp_Translation = 0,
+    "RotationOffset",       // TransformationComp_RotationOffset,
+    "RotationPivot",        // TransformationComp_RotationPivot,
+    "PreRotation",          // TransformationComp_PreRotation,
+    "Rotation",             // TransformationComp_Rotation,
+    "PostRotation",         // TransformationComp_PostRotation,
+    "RotationPivotInverse", // TransformationComp_RotationPivotInverse,
+
+    "ScalingOffset",        // TransformationComp_ScalingOffset,
+    "ScalingPivot",         // TransformationComp_ScalingPivot,
+    "Scaling",              // TransformationComp_Scaling,
+
+    #ifdef EXT_TRANSFORMATION_CHECK
+    "ScalingPivotInverse",  // TransformationComp_ScalingPivotInverse,
+    "GeometricTranslation", // TransformationComp_GeometricTranslation,
+    "GeometricRotation",    // TransformationComp_GeometricRotation,
+    "GeometricScaling",     // TransformationComp_GeometricScaling,
+    #endif
+};
+
+static const unsigned MAX_CHANNELS = 4;
 
 SharedPtr<Context> context_(new Context());
 const aiScene* scene_ = 0;
@@ -127,12 +181,14 @@ float defaultTicksPerSecond_ = 4800.0f;
 // For subset animation import usage
 float importStartTime_ = 0.0f;
 float importEndTime_ = 0.0f;
+bool suppressFbxPivotNodes_ = true;
 
 int main(int argc, char** argv);
 void Run(const Vector<String>& arguments);
 void DumpNodes(aiNode* rootNode, unsigned level);
 
 void ExportModel(const String& outName, bool animationOnly);
+void ExportAnimation(const String& outName, bool animationOnly);
 void CollectMeshes(OutModel& model, aiNode* node);
 void CollectBones(OutModel& model, bool animationOnly = false);
 void CollectBonesFinal(PODVector<aiNode*>& dest, const HashSet<aiNode*>& necessary, aiNode* node);
@@ -169,10 +225,10 @@ unsigned GetNumValidFaces(aiMesh* mesh);
 
 void WriteShortIndices(unsigned short*& dest, aiMesh* mesh, unsigned index, unsigned offset);
 void WriteLargeIndices(unsigned*& dest, aiMesh* mesh, unsigned index, unsigned offset);
-void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, unsigned elementMask, BoundingBox& box,
+void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, bool isSkinned, BoundingBox& box,
     const Matrix3x4& vertexTransform, const Matrix3& normalTransform, Vector<PODVector<unsigned char> >& blendIndices,
     Vector<PODVector<float> >& blendWeights);
-unsigned GetElementMask(aiMesh* mesh, bool isSkinned);
+PODVector<VertexElement> GetVertexElements(aiMesh* mesh, bool isSkinned);
 
 aiNode* GetNode(const String& name, aiNode* rootNode, bool caseSensitive = true);
 aiMatrix4x4 GetDerivedTransform(aiNode* node, aiNode* rootNode, bool rootInclusive = true);
@@ -187,6 +243,10 @@ Quaternion ToQuaternion(const aiQuaternion& quat);
 Matrix3x4 ToMatrix3x4(const aiMatrix4x4& mat);
 aiMatrix4x4 ToAIMatrix4x4(const Matrix3x4& mat);
 String SanitateAssetName(const String& name);
+
+unsigned GetPivotlessBoneIndex(OutModel& model, const String& boneName);
+void ExtrapolatePivotlessAnimation(OutModel* model);
+void CollectSceneNodesAsBones(OutModel &model, aiNode* rootNode);
 
 int main(int argc, char** argv)
 {
@@ -211,6 +271,7 @@ void Run(const Vector<String>& arguments)
             "See http://assimp.sourceforge.net/main_features_formats.html for input formats\n\n"
             "Commands:\n"
             "model       Output a model\n"
+            "anim        Output animation(s)\n"
             "scene       Output a scene\n"
             "node        Output a node and its children (prefab)\n"
             "dump        Dump scene node structure. No output file is generated\n"
@@ -251,6 +312,7 @@ void Run(const Vector<String>& arguments)
             "-bp         Move bones to bind pose before saving model\n"
             "-split <start> <end> (animation model only)\n"
             "            Split animation, will only import from start frame to end frame\n"
+            "-np         Do not suppress $fbx pivot nodes (FBX files only)\n"
         );
     }
 
@@ -343,6 +405,11 @@ void Run(const Vector<String>& arguments)
                 case 'f':
                     flags &= ~aiProcess_FixInfacingNormals;
                     break;
+
+                case 'p':
+                        suppressFbxPivotNodes_ = false;
+                    break;
+
                 }
             }
             else if (argument == "mb" && !value.Empty())
@@ -408,7 +475,7 @@ void Run(const Vector<String>& arguments)
         }
     }
 
-    if (command == "model" || command == "scene" || command == "node" || command == "dump")
+    if (command == "model" || command == "scene" || command == "anim" || command == "node" || command == "dump")
     {
         String inFile = arguments[1];
         String outFile;
@@ -441,7 +508,33 @@ void Run(const Vector<String>& arguments)
             Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE, aiDefaultLogStream_STDOUT);
 
         PrintLine("Reading file " + inFile);
-        scene_ = aiImportFile(GetNativePath(inFile).CString(), flags);
+
+        if (!inFile.EndsWith(".fbx", false))
+            suppressFbxPivotNodes_ = false;
+
+        // Only do this for the "model" command. "anim" command extrapolates animation from the original bone definition
+        if (suppressFbxPivotNodes_ && command == "model")
+        {
+            PrintLine("Suppressing $fbx nodes");
+            aiPropertyStore *aiprops = aiCreatePropertyStore();
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_ALL_GEOMETRY_LAYERS, 1);       //default = true;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_ALL_MATERIALS, 0);             //default = false;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_MATERIALS, 1);                 //default = true;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_CAMERAS, 1);                   //default = true;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_LIGHTS, 1);                    //default = true;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_READ_ANIMATIONS, 1);                //default = true;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_STRICT_MODE, 0);                    //default = false;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);                //**false, default = true;
+            aiSetImportPropertyInteger(aiprops, AI_CONFIG_IMPORT_FBX_OPTIMIZE_EMPTY_ANIMATION_CURVES, 1);//default = true;
+
+            scene_ = aiImportFileExWithProperties(GetNativePath(inFile).CString(), flags, NULL, aiprops);
+
+            // prevent processing animation suppression, both cannot work simultaneously
+            suppressFbxPivotNodes_ = false;
+        }
+        else
+            scene_ = aiImportFile(GetNativePath(inFile).CString(), flags);
+
         if (!scene_)
             ErrorExit("Could not open or parse input file " + inFile + ": " + String(aiGetErrorString()));
 
@@ -465,6 +558,11 @@ void Run(const Vector<String>& arguments)
         if (command == "model")
             ExportModel(outFile, scene_->mFlags & AI_SCENE_FLAGS_INCOMPLETE);
 
+        if (command == "anim")
+        {
+            noMaterials_ = true;
+            ExportAnimation(outFile, scene_->mFlags & AI_SCENE_FLAGS_INCOMPLETE);
+        }
         if (command == "scene" || command == "node")
         {
             bool asPrefab = command == "node";
@@ -562,6 +660,36 @@ void ExportModel(const String& outName, bool animationOnly)
     BuildAndSaveModel(model);
     if (!noAnimations_)
     {
+        CollectAnimations(&model);
+        BuildAndSaveAnimations(&model);
+
+        // Save scene-global animations
+        CollectAnimations();
+        BuildAndSaveAnimations();
+    }
+}
+
+void ExportAnimation(const String& outName, bool animationOnly)
+{
+    if (outName.Empty())
+        ErrorExit("No output file defined");
+
+    OutModel model;
+    model.rootNode_ = rootNode_;
+    model.outName_ = outName;
+
+    CollectMeshes(model, model.rootNode_);
+    CollectBones(model, animationOnly);
+    BuildBoneCollisionInfo(model);
+    //    BuildAndSaveModel(model);
+    if (!noAnimations_)
+    {
+        // Most fbx animation files contain only a skeleton and no skinned mesh.
+        // Assume the scene node contains the model's bone definition and, 
+        // transfer the info to the model.
+        if (suppressFbxPivotNodes_ && model.bones_.Size() == 0)
+            CollectSceneNodesAsBones(model, rootNode_);
+
         CollectAnimations(&model);
         BuildAndSaveAnimations(&model);
 
@@ -885,17 +1013,18 @@ void BuildAndSaveModel(OutModel& model)
     unsigned numValidGeometries = 0;
 
     bool combineBuffers = true;
-    // Check if buffers can be combined (same vertex element mask, under 65535 vertices)
-    unsigned elementMask = GetElementMask(model.meshes_[0], model.bones_.Size() > 0);
+    // Check if buffers can be combined (same vertex elements, under 65535 vertices)
+    PODVector<VertexElement> elements = GetVertexElements(model.meshes_[0], model.bones_.Size() > 0);
     for (unsigned i = 0; i < model.meshes_.Size(); ++i)
     {
         if (GetNumValidFaces(model.meshes_[i]))
         {
             ++numValidGeometries;
-            if (i > 0 && GetElementMask(model.meshes_[i], model.bones_.Size() > 0) != elementMask)
+            if (i > 0 && GetVertexElements(model.meshes_[i], model.bones_.Size() > 0) != elements)
                 combineBuffers = false;
         }
     }
+
     // Check if keeping separate buffers allows to avoid 32-bit indices
     if (combineBuffers && model.totalVertices_ > 65535)
     {
@@ -919,13 +1048,14 @@ void BuildAndSaveModel(OutModel& model)
     unsigned startVertexOffset = 0;
     unsigned startIndexOffset = 0;
     unsigned destGeomIndex = 0;
+    bool isSkinned = model.bones_.Size() > 0;
 
     outModel->SetNumGeometries(numValidGeometries);
 
     for (unsigned i = 0; i < model.meshes_.Size(); ++i)
     {
         aiMesh* mesh = model.meshes_[i];
-        unsigned elementMask = GetElementMask(mesh, model.bones_.Size() > 0);
+        PODVector<VertexElement> elements = GetVertexElements(mesh, isSkinned);
         unsigned validFaces = GetNumValidFaces(mesh);
         if (!validFaces)
             continue;
@@ -945,12 +1075,12 @@ void BuildAndSaveModel(OutModel& model)
             if (combineBuffers)
             {
                 ib->SetSize(model.totalIndices_, largeIndices);
-                vb->SetSize(model.totalVertices_, elementMask);
+                vb->SetSize(model.totalVertices_, elements);
             }
             else
             {
                 ib->SetSize(validFaces * 3, largeIndices);
-                vb->SetSize(mesh->mNumVertices, elementMask);
+                vb->SetSize(mesh->mNumVertices, elements);
             }
 
             vbVector.Push(vb);
@@ -1003,7 +1133,7 @@ void BuildAndSaveModel(OutModel& model)
 
         float* dest = (float*)((unsigned char*)vertexData + startVertexOffset * vb->GetVertexSize());
         for (unsigned j = 0; j < mesh->mNumVertices; ++j)
-            WriteVertex(dest, mesh, j, elementMask, box, vertexTransform, normalTransform, blendIndices, blendWeights);
+            WriteVertex(dest, mesh, j, isSkinned, box, vertexTransform, normalTransform, blendIndices, blendWeights);
 
         // Calculate the geometry center
         Vector3 center = Vector3::ZERO;
@@ -1116,6 +1246,10 @@ void BuildAndSaveModel(OutModel& model)
 
 void BuildAndSaveAnimations(OutModel* model)
 {
+    // extrapolate anim
+    ExtrapolatePivotlessAnimation(model);
+
+    // build and save anim
     const PODVector<aiAnimation*>& animations = model ? model->animations_ : sceneAnimations_;
 
     for (unsigned i = 0; i < animations.Size(); ++i)
@@ -1174,14 +1308,39 @@ void BuildAndSaveAnimations(OutModel* model)
 
             if (model)
             {
-                unsigned boneIndex = GetBoneIndex(*model, channelName);
-                if (boneIndex == M_MAX_UNSIGNED)
+                unsigned boneIndex;
+                unsigned pos = channelName.Find("_$AssimpFbx$");
+
+                if (!suppressFbxPivotNodes_ || pos == String::NPOS)
                 {
-                    PrintLine("Warning: skipping animation track " + channelName + " not found in model skeleton");
-                    outAnim->RemoveTrack(channelName);
-                    continue;
+                    boneIndex = GetBoneIndex(*model, channelName);
+                    if (boneIndex == M_MAX_UNSIGNED)
+                    {
+                        PrintLine("Warning: skipping animation track " + channelName + " not found in model skeleton");
+                        outAnim->RemoveTrack(channelName);
+                        continue;
+                    }
+                    boneNode = model->bones_[boneIndex];
                 }
-                boneNode = model->bones_[boneIndex];
+                else
+                {
+                    channelName = channelName.Substring(0, pos);
+
+                    // every first $fbx animation channel for a bone will consolidate other $fbx animation to a single channel
+                    // skip subsequent $fbx animation channel for the same bone
+                    if (outAnim->GetTrack(channelName) != NULL)
+                        continue;
+
+                    boneIndex = GetPivotlessBoneIndex(*model, channelName);
+                    if (boneIndex == M_MAX_UNSIGNED)
+                    {
+                        PrintLine("Warning: skipping animation track " + channelName + " not found in model skeleton");
+                        outAnim->RemoveTrack(channelName);
+                        continue;
+                    }
+
+                    boneNode = model->pivotlessBones_[boneIndex];
+                }
                 isRootBone = boneIndex == 0;
             }
             else
@@ -2263,7 +2422,7 @@ void WriteLargeIndices(unsigned*& dest, aiMesh* mesh, unsigned index, unsigned o
     }
 }
 
-void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, unsigned elementMask, BoundingBox& box,
+void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, bool isSkinned, BoundingBox& box,
     const Matrix3x4& vertexTransform, const Matrix3& normalTransform, Vector<PODVector<unsigned char> >& blendIndices,
     Vector<PODVector<float> >& blendWeights)
 {
@@ -2272,32 +2431,30 @@ void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, unsigned elementMas
     *dest++ = vertex.x_;
     *dest++ = vertex.y_;
     *dest++ = vertex.z_;
-    if (elementMask & MASK_NORMAL)
+
+    if (mesh->HasNormals())
     {
         Vector3 normal = normalTransform * ToVector3(mesh->mNormals[index]);
         *dest++ = normal.x_;
         *dest++ = normal.y_;
         *dest++ = normal.z_;
     }
-    if (elementMask & MASK_COLOR)
+
+    for (unsigned i = 0; i < mesh->GetNumColorChannels() && i < MAX_CHANNELS; ++i)
     {
-        *((unsigned*)dest) = Color(mesh->mColors[0][index].r, mesh->mColors[0][index].g, mesh->mColors[0][index].b,
-            mesh->mColors[0][index].a).ToUInt();
+        *((unsigned*)dest) = Color(mesh->mColors[i][index].r, mesh->mColors[i][index].g, mesh->mColors[i][index].b,
+            mesh->mColors[i][index].a).ToUInt();
         ++dest;
     }
-    if (elementMask & MASK_TEXCOORD1)
+    
+    for (unsigned i = 0; i < mesh->GetNumUVChannels() && i < MAX_CHANNELS; ++i)
     {
-        Vector3 texCoord = ToVector3(mesh->mTextureCoords[0][index]);
+        Vector3 texCoord = ToVector3(mesh->mTextureCoords[i][index]);
         *dest++ = texCoord.x_;
         *dest++ = texCoord.y_;
     }
-    if (elementMask & MASK_TEXCOORD2)
-    {
-        Vector3 texCoord = ToVector3(mesh->mTextureCoords[1][index]);
-        *dest++ = texCoord.x_;
-        *dest++ = texCoord.y_;
-    }
-    if (elementMask & MASK_TANGENT)
+
+    if (mesh->HasTangentsAndBitangents())
     {
         Vector3 tangent = normalTransform * ToVector3(mesh->mTangents[index]);
         Vector3 normal = normalTransform * ToVector3(mesh->mNormals[index]);
@@ -2312,7 +2469,8 @@ void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, unsigned elementMas
         *dest++ = tangent.z_;
         *dest++ = w;
     }
-    if (elementMask & MASK_BLENDWEIGHTS)
+
+    if (isSkinned)
     {
         for (unsigned i = 0; i < 4; ++i)
         {
@@ -2321,9 +2479,7 @@ void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, unsigned elementMas
             else
                 *dest++ = 0.0f;
         }
-    }
-    if (elementMask & MASK_BLENDINDICES)
-    {
+    
         unsigned char* destBytes = (unsigned char*)dest;
         ++dest;
         for (unsigned i = 0; i < 4; ++i)
@@ -2336,22 +2492,33 @@ void WriteVertex(float*& dest, aiMesh* mesh, unsigned index, unsigned elementMas
     }
 }
 
-unsigned GetElementMask(aiMesh* mesh, bool isSkinned)
+PODVector<VertexElement> GetVertexElements(aiMesh* mesh, bool isSkinned)
 {
-    unsigned elementMask = MASK_POSITION;
+    PODVector<VertexElement> ret;
+
+    // Position must always be first and of type Vector3 for raycasts to work
+    ret.Push(VertexElement(TYPE_VECTOR3, SEM_POSITION));
+
     if (mesh->HasNormals())
-        elementMask |= MASK_NORMAL;
+        ret.Push(VertexElement(TYPE_VECTOR3, SEM_NORMAL));
+
+    for (unsigned i = 0; i < mesh->GetNumColorChannels() && i < MAX_CHANNELS; ++i)
+        ret.Push(VertexElement(TYPE_UBYTE4_NORM, SEM_COLOR, i));
+
+    /// \todo Assimp mesh structure can specify 3D UV-coords. How to determine the difference? For now always treated as 2D.
+    for (unsigned i = 0; i < mesh->GetNumUVChannels() && i < MAX_CHANNELS; ++i)
+        ret.Push(VertexElement(TYPE_VECTOR2, SEM_TEXCOORD, i));
+
     if (mesh->HasTangentsAndBitangents())
-        elementMask |= MASK_TANGENT;
-    if (mesh->GetNumColorChannels() > 0)
-        elementMask |= MASK_COLOR;
-    if (mesh->GetNumUVChannels() > 0)
-        elementMask |= MASK_TEXCOORD1;
-    if (mesh->GetNumUVChannels() > 1)
-        elementMask |= MASK_TEXCOORD2;
+        ret.Push(VertexElement(TYPE_VECTOR4, SEM_TANGENT));
+
     if (isSkinned)
-        elementMask |= (MASK_BLENDWEIGHTS | MASK_BLENDINDICES);
-    return elementMask;
+    {
+        ret.Push(VertexElement(TYPE_VECTOR4, SEM_BLENDWEIGHTS));
+        ret.Push(VertexElement(TYPE_UBYTE4, SEM_BLENDINDICES));
+    }
+
+    return ret;
 }
 
 aiNode* GetNode(const String& name, aiNode* rootNode, bool caseSensitive)
@@ -2457,3 +2624,296 @@ String SanitateAssetName(const String& name)
 
     return fixedName;
 }
+
+unsigned GetPivotlessBoneIndex(OutModel& model, const String& boneName)
+{
+    for (unsigned i = 0; i < model.pivotlessBones_.Size(); ++i)
+    {
+        if (boneName == model.pivotlessBones_[i]->mName.data)
+            return i;
+    }
+    return M_MAX_UNSIGNED;
+}
+
+void FillChainTransforms(OutModel &model, aiMatrix4x4 *chain, const String& mainBoneName)
+{
+    for (unsigned j = 0; j < TransformationComp_MAXIMUM; ++j)
+    {
+        String transfBoneName = mainBoneName + "_$AssimpFbx$_" + String(transformSuffix[j]);
+
+        for (unsigned k = 0; k < model.bones_.Size(); ++k)
+        {
+            String boneName = String(model.bones_[k]->mName.data);
+
+            if (boneName == transfBoneName)
+            {
+                chain[j] = model.bones_[k]->mTransformation;
+                break;
+            }
+        }
+    }
+}
+
+void ExpandAnimatedChannelKeys(aiAnimation* anim, unsigned mainChannel, int *channelIndices)
+{
+    aiNodeAnim* channel = anim->mChannels[mainChannel];
+    unsigned int poskeyFrames = channel->mNumPositionKeys;
+    unsigned int rotkeyFrames = channel->mNumRotationKeys;
+    unsigned int scalekeyFrames = channel->mNumScalingKeys;
+    
+    // Get max key frames
+    for (unsigned i = 0; i < TransformationComp_MAXIMUM; ++i)
+    {
+        if (channelIndices[i] != -1 && channelIndices[i] != mainChannel)
+        {
+            aiNodeAnim* channel2 = anim->mChannels[channelIndices[i]];
+
+            if (channel2->mNumPositionKeys > poskeyFrames)
+                poskeyFrames = channel2->mNumPositionKeys;
+            if (channel2->mNumRotationKeys > rotkeyFrames)
+                rotkeyFrames = channel2->mNumRotationKeys;
+            if (channel2->mNumScalingKeys  > scalekeyFrames)
+                scalekeyFrames = channel2->mNumScalingKeys;
+        }
+    }
+
+    // Resize and init vector key array
+    if (poskeyFrames > channel->mNumPositionKeys)
+    {
+        aiVectorKey* newKeys  = new aiVectorKey[poskeyFrames];
+        for (unsigned i = 0; i < poskeyFrames; ++i)
+        {
+            if (i < channel->mNumPositionKeys )
+                newKeys[i] = aiVectorKey(channel->mPositionKeys[i].mTime, channel->mPositionKeys[i].mValue);
+            else
+                newKeys[i].mValue = aiVector3D(0.0f, 0.0f, 0.0f);
+        }
+        delete[] channel->mPositionKeys;
+        channel->mPositionKeys = newKeys;
+        channel->mNumPositionKeys = poskeyFrames;
+    }
+    if (rotkeyFrames > channel->mNumRotationKeys)
+    {
+        aiQuatKey* newKeys  = new aiQuatKey[rotkeyFrames];
+        for (unsigned i = 0; i < rotkeyFrames; ++i)
+        {
+            if (i < channel->mNumRotationKeys)
+                newKeys[i] = aiQuatKey(channel->mRotationKeys[i].mTime, channel->mRotationKeys[i].mValue);
+            else
+                newKeys[i].mValue = aiQuaternion();
+        }
+        delete[] channel->mRotationKeys;
+        channel->mRotationKeys = newKeys;
+        channel->mNumRotationKeys = rotkeyFrames;
+    }
+    if (scalekeyFrames > channel->mNumScalingKeys)
+    {
+        aiVectorKey* newKeys  = new aiVectorKey[scalekeyFrames];
+        for (unsigned i = 0; i < scalekeyFrames; ++i)
+        {
+            if ( i < channel->mNumScalingKeys)
+                newKeys[i] = aiVectorKey(channel->mScalingKeys[i].mTime, channel->mScalingKeys[i].mValue);
+            else
+                newKeys[i].mValue = aiVector3D(1.0f, 1.0f, 1.0f);
+        }
+        delete[] channel->mScalingKeys;
+        channel->mScalingKeys = newKeys;
+        channel->mNumScalingKeys = scalekeyFrames;
+    }
+}
+
+void InitAnimatedChainTransformIndices(aiAnimation* anim, unsigned mainChannel, const String& mainBoneName, int *channelIndices)
+{
+    int numTransforms = 0;
+
+    for (unsigned j = 0; j < TransformationComp_MAXIMUM; ++j)
+    {
+        String transfBoneName = mainBoneName + "_$AssimpFbx$_" + String(transformSuffix[j]);
+        channelIndices[j] = -1;
+
+        for (unsigned k = 0; k < anim->mNumChannels; ++k)
+        {
+            aiNodeAnim* channel = anim->mChannels[k];
+            String channelName = FromAIString(channel->mNodeName);
+
+            if (channelName == transfBoneName)
+            {
+                ++numTransforms;
+                channelIndices[j] = k;
+                break;
+            }
+        }
+    }
+
+    // resize animated channel key size
+    if (numTransforms > 1)
+        ExpandAnimatedChannelKeys(anim, mainChannel, channelIndices);
+}
+
+void CreatePivotlessFbxBoneStruct(OutModel &model)
+{
+    // Init
+    model.pivotlessBones_.Clear();
+    aiMatrix4x4 chain[TransformationComp_MAXIMUM];
+
+    for (unsigned i = 0; i < model.bones_.Size(); ++i)
+    {
+        String mainBoneName = String(model.bones_[i]->mName.data);
+
+        // Skip $fbx nodes
+        if (mainBoneName.Find("$AssimpFbx$") != String::NPOS)
+            continue;
+
+        std::fill_n(chain, static_cast<unsigned int>(TransformationComp_MAXIMUM), aiMatrix4x4());
+        FillChainTransforms(model, &chain[0], mainBoneName);
+
+        // Calculate chained transform
+        aiMatrix4x4 finalTransform;
+        for (unsigned j = 0; j < TransformationComp_MAXIMUM; ++j)
+            finalTransform = finalTransform * chain[j];
+
+        // New bone node
+        aiNode *pnode = new aiNode;
+        pnode->mName = model.bones_[i]->mName;
+        pnode->mTransformation = finalTransform * model.bones_[i]->mTransformation;
+
+        model.pivotlessBones_.Push(pnode);
+    }
+}
+
+void ExtrapolatePivotlessAnimation(OutModel* model)
+{
+    if (suppressFbxPivotNodes_ && model)
+    {
+        PrintLine("Suppressing $fbx nodes");
+
+        // Construct new bone structure from suppressed $fbx pivot nodes
+        CreatePivotlessFbxBoneStruct(*model);
+
+        // Extrapolate anim
+        const PODVector<aiAnimation *> &animations = model->animations_;
+        for (unsigned i = 0; i < animations.Size(); ++i)
+        {
+            aiAnimation* anim = animations[i];
+            Vector<String> mainBoneCompleteList;
+            mainBoneCompleteList.Clear();
+
+            for (unsigned j = 0; j < anim->mNumChannels; ++j)
+            {
+                aiNodeAnim* channel = anim->mChannels[j];
+                String channelName = FromAIString(channel->mNodeName);
+                unsigned pos = channelName.Find("_$AssimpFbx$");
+
+                if (pos != String::NPOS)
+                {
+                    // Every first $fbx animation channel for a bone will consolidate other $fbx animation to a single channel
+                    // skip subsequent $fbx animation channel for the same bone
+                    String mainBoneName = channelName.Substring(0, pos);
+
+                    if (mainBoneCompleteList.Find(mainBoneName) != mainBoneCompleteList.End())
+                        continue;
+
+                    mainBoneCompleteList.Push(mainBoneName);
+                    unsigned boneIdx = GetBoneIndex(*model, mainBoneName);
+
+                    // This condition exists if a geometry, not a bone, has a key animation
+                    if (boneIdx == M_MAX_UNSIGNED)
+                        continue;
+
+                    // Init chain indices and fill transforms
+                    aiMatrix4x4 mainboneTransform = model->bones_[boneIdx]->mTransformation;
+                    aiMatrix4x4 chain[TransformationComp_MAXIMUM];
+                    int channelIndices[TransformationComp_MAXIMUM];
+
+                    InitAnimatedChainTransformIndices(anim, j, mainBoneName, &channelIndices[0]);
+                    std::fill_n(chain, static_cast<unsigned int>(TransformationComp_MAXIMUM), aiMatrix4x4());
+                    FillChainTransforms(*model, &chain[0], mainBoneName);
+
+                    unsigned keyFrames = channel->mNumPositionKeys;
+                    if (channel->mNumRotationKeys > keyFrames)
+                        keyFrames = channel->mNumRotationKeys;
+                    if (channel->mNumScalingKeys  > keyFrames)
+                        keyFrames = channel->mNumScalingKeys;
+
+                    for (unsigned k = 0; k < keyFrames; ++k)
+                    {
+                        double frameTime = 0.0;
+                        aiMatrix4x4 finalTransform;
+
+                        // Chain transform animated values
+                        for (unsigned l = 0; l < TransformationComp_MAXIMUM; ++l)
+                        {
+                            // It's either the chain transform or animation channel transform
+                            if (channelIndices[l] != -1)
+                            {
+                                aiMatrix4x4 animtform, tempMat;
+                                aiNodeAnim* animchannel = anim->mChannels[channelIndices[l]];
+
+                                if (k < animchannel->mNumPositionKeys)
+                                {
+                                    aiMatrix4x4::Translation(animchannel->mPositionKeys[k].mValue, tempMat);
+                                    animtform = animtform * tempMat;
+                                    frameTime = Max(animchannel->mPositionKeys[k].mTime, frameTime);
+                                }
+                                if (k < animchannel->mNumRotationKeys)
+                                {
+                                    tempMat = aiMatrix4x4(animchannel->mRotationKeys[k].mValue.GetMatrix());
+                                    animtform = animtform * tempMat;
+                                    frameTime = Max(animchannel->mRotationKeys[k].mTime, frameTime);
+                                }
+                                if (k < animchannel->mNumScalingKeys)
+                                {
+                                    aiMatrix4x4::Scaling(animchannel->mScalingKeys[k].mValue, tempMat);
+                                    animtform = animtform * tempMat;
+                                    frameTime = Max(animchannel->mScalingKeys[k].mTime, frameTime);
+                                }
+
+                                finalTransform = finalTransform * animtform;
+                            }
+                            else
+                                finalTransform = finalTransform * chain[l];
+                        }
+
+                        aiVector3D animPos, animScale;
+                        aiQuaternion animRot;
+                        finalTransform = finalTransform * mainboneTransform;
+                        finalTransform.Decompose(animScale, animRot, animPos);
+
+                        // New values
+                        if (k < channel->mNumPositionKeys)
+                        {
+                            channel->mPositionKeys[k].mValue = animPos;
+                            channel->mPositionKeys[k].mTime = frameTime;
+                        }
+
+                        if (k < channel->mNumRotationKeys)
+                        {
+                            channel->mRotationKeys[k].mValue = animRot;
+                            channel->mRotationKeys[k].mTime = frameTime;
+                        }
+
+                        if (k < channel->mNumScalingKeys)
+                        {
+                            channel->mScalingKeys[k].mValue = animScale;
+                            channel->mScalingKeys[k].mTime = frameTime;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void CollectSceneNodesAsBones(OutModel &model, aiNode* rootNode)
+{
+    if (!rootNode)
+        return;
+
+    model.bones_.Push(rootNode);
+
+    for (unsigned i = 0; i < rootNode->mNumChildren; ++i)
+    {
+        CollectSceneNodesAsBones(model, rootNode->mChildren[i]);
+    }
+}
+

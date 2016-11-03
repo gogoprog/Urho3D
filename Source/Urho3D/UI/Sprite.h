@@ -48,7 +48,11 @@ public:
     /// Return UI rendering batches.
     virtual void GetBatches(PODVector<UIBatch>& batches, PODVector<float>& vertexData, const IntRect& currentScissor);
     /// React to position change.
-    virtual void OnPositionSet();
+    virtual void OnPositionSet(const IntVector2& newPosition);
+    /// Convert screen coordinates to element coordinates.
+    virtual IntVector2 ScreenToElement(const IntVector2& screenPosition);
+    /// Convert element coordinates to screen coordinates.
+    virtual IntVector2 ElementToScreen(const IntVector2& position);
 
     /// Set floating point position.
     void SetPosition(const Vector2& position);

@@ -38,7 +38,9 @@ enum Orientation2D
     /// Isometric.
     O_ISOMETRIC,
     /// Staggered.
-    O_STAGGERED
+    O_STAGGERED,
+    /// Hexagonal
+    O_HEXAGONAL
 };
 
 /// Tile map information.
@@ -64,7 +66,7 @@ struct URHO3D_API TileMapInfo2D
     /// Convert tile index to position.
     Vector2 TileIndexToPosition(int x, int y) const;
     /// Convert position to tile index, if out of map return false.
-    bool PositionToTileIndex(int& x, int& y, const Vector2& positon) const;
+    bool PositionToTileIndex(int& x, int& y, const Vector2& position) const;
 };
 
 /// Tile map layer type.

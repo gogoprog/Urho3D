@@ -31,9 +31,9 @@ class Button;
 class Slider;
 
 /// Scroll bar %UI element with forward and back buttons.
-class URHO3D_API ScrollBar : public UIElement
+class URHO3D_API ScrollBar : public BorderImage
 {
-    URHO3D_OBJECT(ScrollBar, UIElement);
+    URHO3D_OBJECT(ScrollBar, BorderImage);
 
 public:
     /// Construct.
@@ -46,7 +46,7 @@ public:
     /// Apply attribute changes that can not be applied immediately.
     virtual void ApplyAttributes();
     /// React to resize.
-    virtual void OnResize();
+    virtual void OnResize(const IntVector2& newSize, const IntVector2& delta);
     /// React to editable status change.
     virtual void OnSetEditable();
 

@@ -867,8 +867,12 @@ VariantMap XMLElement::GetVariantMap() const
     XMLElement variantElem = GetChild("variant");
     while (variantElem)
     {
-        StringHash key(variantElem.GetUInt("hash"));
-        ret[key] = variantElem.GetVariant();
+        // If this is a manually edited map, user can not be expected to calculate hashes manually. Also accept "name" attribute
+        if (variantElem.HasAttribute("name"))
+            ret[StringHash(variantElem.GetAttribute("name"))] = variantElem.GetVariant();
+        else if (variantElem.HasAttribute("hash"))
+            ret[StringHash(variantElem.GetUInt("hash"))] = variantElem.GetVariant();
+
         variantElem = variantElem.GetNext("variant");
     }
 
@@ -986,32 +990,23 @@ bool XPathResultSet::Empty() const
     return resultSet_ ? resultSet_->empty() : true;
 }
 
-XPathQuery::XPathQuery() :
-    query_(0),
-    variables_(0)
+XPathQuery::XPathQuery()
 {
 }
 
-XPathQuery::XPathQuery(const String& queryString, const String& variableString) :
-    query_(0),
-    variables_(0)
+XPathQuery::XPathQuery(const String& queryString, const String& variableString)
 {
     SetQuery(queryString, variableString);
 }
 
 XPathQuery::~XPathQuery()
 {
-    delete variables_;
-    variables_ = 0;
-    delete query_;
-    query_ = 0;
 }
 
 void XPathQuery::Bind()
 {
     // Delete previous query object and create a new one binding it with variable set
-    delete query_;
-    query_ = new pugi::xpath_query(queryString_.CString(), variables_);
+    query_ = new pugi::xpath_query(queryString_.CString(), variables_.Get());
 }
 
 bool XPathQuery::SetVariable(const String& name, bool value)
@@ -1096,10 +1091,8 @@ void XPathQuery::Clear()
 {
     queryString_.Clear();
 
-    delete variables_;
-    variables_ = 0;
-    delete query_;
-    query_ = 0;
+    variables_.Reset();
+    query_.Reset();
 }
 
 bool XPathQuery::EvaluateToBool(XMLElement element) const

@@ -262,8 +262,12 @@ public:
     /// Assign a hash map.
     HashMap& operator =(const HashMap<T, U>& rhs)
     {
-        Clear();
-        Insert(rhs);
+        // In case of self-assignment do nothing
+        if (&rhs != this)
+        {
+            Clear();
+            Insert(rhs);
+        }
         return *this;
     }
 
@@ -341,10 +345,34 @@ public:
         return node ? &node->pair_.second_ : 0;
     }
 
+#if URHO3D_CXX11
+    /// Populate the map using variadic template. This handles the base case.
+    HashMap& Populate(const T& key, const U& value)
+    {
+        this->operator [](key) = value;
+        return *this;
+    };
+    /// Populate the map using variadic template.
+    template <typename... Args> HashMap& Populate(const T& key, const U& value, Args... args)
+    {
+        this->operator [](key) = value;
+        return Populate(args...);
+    };
+#endif
+
     /// Insert a pair. Return an iterator to it.
     Iterator Insert(const Pair<T, U>& pair)
     {
         return Iterator(InsertNode(pair.first_, pair.second_));
+    }
+
+    /// Insert a pair. Return iterator and set exists flag according to whether the key already existed.
+    Iterator Insert(const Pair<T, U>& pair, bool& exists)
+    {
+        unsigned oldSize = Size();
+        Iterator ret(InsertNode(pair.first_, pair.second_));
+        exists = (Size() == oldSize);
+        return ret;
     }
 
     /// Insert a map.
@@ -530,6 +558,22 @@ public:
         return FindNode(key, hashKey) != 0;
     }
 
+    /// Try to copy value to output. Return true if was found.
+    bool TryGetValue(const T& key, U& out) const
+    {
+        if (!ptrs_)
+            return false;
+        unsigned hashKey = Hash(key);
+        Node* node = FindNode(key, hashKey);
+        if (node)
+        {
+            out = node->pair_.second_;
+            return true;
+        }
+        else
+            return false;
+    }
+
     /// Return all the keys.
     Vector<T> Keys() const
     {
@@ -562,11 +606,11 @@ public:
     /// Return iterator to the end.
     ConstIterator End() const { return ConstIterator(Tail()); }
 
-    /// Return first key.
-    const T& Front() const { return *Begin(); }
+    /// Return first pair.
+    const KeyValue& Front() const { return *Begin(); }
 
-    /// Return last key.
-    const T& Back() const { return *(--End()); }
+    /// Return last pair.
+    const KeyValue& Back() const { return *(--End()); }
 
 private:
     /// Return the head node.

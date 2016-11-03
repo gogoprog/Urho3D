@@ -30,6 +30,7 @@
 #include "../Graphics/Model.h"
 #include "../Graphics/StaticModel.h"
 #include "../Graphics/TerrainPatch.h"
+#include "../Graphics/VertexBuffer.h"
 #include "../IO/Log.h"
 #include "../IO/MemoryBuffer.h"
 #include "../Navigation/CrowdAgent.h"
@@ -94,8 +95,6 @@ struct FindPathData
     Vector3 pathPoints_[MAX_POLYS];
     // Flags on the path.
     unsigned char pathFlags_[MAX_POLYS];
-    // Area Ids on the path.
-    unsigned char pathAreras_[MAX_POLYS];
 };
 
 NavigationMesh::NavigationMesh(Context* context) :
@@ -130,12 +129,6 @@ NavigationMesh::NavigationMesh(Context* context) :
 NavigationMesh::~NavigationMesh()
 {
     ReleaseNavigationMesh();
-
-    delete queryFilter_;
-    queryFilter_ = 0;
-
-    delete pathData_;
-    pathData_ = 0;
 }
 
 void NavigationMesh::RegisterObject(Context* context)
@@ -221,11 +214,9 @@ void NavigationMesh::DrawDebugGeometry(DebugRenderer* debug, bool depthTest)
         // Draw NavArea components
         if (drawNavAreas_)
         {
-            PODVector<Node*> areas;
-            scene->GetChildrenWithComponent<NavArea>(areas, true);
-            for (unsigned i = 0; i < areas.Size(); ++i)
+            for (unsigned i = 0; i < areas_.Size(); ++i)
             {
-                NavArea* area = areas[i]->GetComponent<NavArea>();
+                NavArea* area = areas_[i];
                 if (area && area->IsEnabledEffective())
                     area->DrawDebugGeometry(debug, depthTest);
             }
@@ -491,7 +482,7 @@ Vector3 NavigationMesh::FindNearestPoint(const Vector3& point, const Vector3& ex
     dtPolyRef pointRef;
     if (!nearestRef)
         nearestRef = &pointRef;
-    navMeshQuery_->findNearestPoly(&localPoint.x_, &extents.x_, filter ? filter : queryFilter_, nearestRef, &nearestPoint.x_);
+    navMeshQuery_->findNearestPoly(&localPoint.x_, &extents.x_, filter ? filter : queryFilter_.Get(), nearestRef, &nearestPoint.x_);
     return *nearestRef ? transform * nearestPoint : point;
 }
 
@@ -507,7 +498,7 @@ Vector3 NavigationMesh::MoveAlongSurface(const Vector3& start, const Vector3& en
     Vector3 localStart = inverse * start;
     Vector3 localEnd = inverse * end;
 
-    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_;
+    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_.Get();
     dtPolyRef startRef;
     navMeshQuery_->findNearestPoly(&localStart.x_, &extents.x_, queryFilter, &startRef, 0);
     if (!startRef)
@@ -534,8 +525,7 @@ void NavigationMesh::FindPath(PODVector<Vector3>& dest, const Vector3& start, co
 }
 
 void NavigationMesh::FindPath(PODVector<NavigationPathPoint>& dest, const Vector3& start, const Vector3& end,
-    const Vector3& extents,
-    const dtQueryFilter* filter)
+    const Vector3& extents, const dtQueryFilter* filter)
 {
     URHO3D_PROFILE(FindPath);
     dest.Clear();
@@ -550,7 +540,7 @@ void NavigationMesh::FindPath(PODVector<NavigationPathPoint>& dest, const Vector
     Vector3 localStart = inverse * start;
     Vector3 localEnd = inverse * end;
 
-    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_;
+    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_.Get();
     dtPolyRef startRef;
     dtPolyRef endRef;
     navMeshQuery_->findNearestPoly(&localStart.x_, &extents.x_, queryFilter, &startRef, 0);
@@ -582,7 +572,29 @@ void NavigationMesh::FindPath(PODVector<NavigationPathPoint>& dest, const Vector
         NavigationPathPoint pt;
         pt.position_ = transform * pathData_->pathPoints_[i];
         pt.flag_ = (NavigationPathPointFlag)pathData_->pathFlags_[i];
-        pt.areaID_ = pathData_->pathAreras_[i];
+
+        // Walk through all NavAreas and find nearest
+        unsigned nearestNavAreaID = 0;       // 0 is the default nav area ID
+        float nearestDistance = M_LARGE_VALUE;
+        for (unsigned j = 0; j < areas_.Size(); j++)
+        {
+            NavArea* area = areas_[j].Get();
+            if (area && area->IsEnabledEffective())
+            {
+                BoundingBox bb = area->GetWorldBoundingBox();
+                if (bb.IsInside(pt.position_) == INSIDE)
+                {
+                    Vector3 areaWorldCenter = area->GetNode()->GetWorldPosition();
+                    float distance = (areaWorldCenter - pt.position_).LengthSquared();
+                    if (distance < nearestDistance)
+                    {
+                        nearestDistance = distance;
+                        nearestNavAreaID = area->GetAreaID();
+                    }
+                }
+            }
+        }
+        pt.areaID_ = (unsigned char)nearestNavAreaID;
 
         dest.Push(pt);
     }
@@ -596,7 +608,7 @@ Vector3 NavigationMesh::GetRandomPoint(const dtQueryFilter* filter, dtPolyRef* r
     dtPolyRef polyRef;
     Vector3 point(Vector3::ZERO);
 
-    navMeshQuery_->findRandomPoint(filter ? filter : queryFilter_, Random, randomRef ? randomRef : &polyRef, &point.x_);
+    navMeshQuery_->findRandomPoint(filter ? filter : queryFilter_.Get(), Random, randomRef ? randomRef : &polyRef, &point.x_);
 
     return node_->GetWorldTransform() * point;
 }
@@ -614,7 +626,7 @@ Vector3 NavigationMesh::GetRandomPointInCircle(const Vector3& center, float radi
     Matrix3x4 inverse = transform.Inverse();
     Vector3 localCenter = inverse * center;
 
-    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_;
+    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_.Get();
     dtPolyRef startRef;
     navMeshQuery_->findNearestPoly(&localCenter.x_, &extents.x_, queryFilter, &startRef, 0);
     if (!startRef)
@@ -645,7 +657,7 @@ float NavigationMesh::GetDistanceToWall(const Vector3& point, float radius, cons
     Matrix3x4 inverse = transform.Inverse();
     Vector3 localPoint = inverse * point;
 
-    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_;
+    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_.Get();
     dtPolyRef startRef;
     navMeshQuery_->findNearestPoly(&localPoint.x_, &extents.x_, queryFilter, &startRef, 0);
     if (!startRef)
@@ -678,7 +690,7 @@ Vector3 NavigationMesh::Raycast(const Vector3& start, const Vector3& end, const 
     Vector3 localStart = inverse * start;
     Vector3 localEnd = inverse * end;
 
-    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_;
+    const dtQueryFilter* queryFilter = filter ? filter : queryFilter_.Get();
     dtPolyRef startRef;
     navMeshQuery_->findNearestPoly(&localStart.x_, &extents.x_, queryFilter, &startRef, 0);
     if (!startRef)
@@ -868,16 +880,17 @@ void NavigationMesh::CollectGeometries(Vector<NavigationGeometryInfo>& geometryL
     // Get nav area volumes
     PODVector<NavArea*> navAreas;
     node_->GetComponents<NavArea>(navAreas, true);
+    areas_.Clear();
     for (unsigned i = 0; i < navAreas.Size(); ++i)
     {
         NavArea* area = navAreas[i];
-        // Ignore disabled AND any areas that have no meaningful settings
-        if (area->IsEnabledEffective() && area->GetAreaID() != 0)
+        if (area->IsEnabledEffective())
         {
             NavigationGeometryInfo info;
             info.component_ = area;
             info.boundingBox_ = area->GetWorldBoundingBox();
             geometryList.Push(info);
+            areas_.Push(WeakPtr<NavArea>(area));
         }
     }
 }
@@ -1081,10 +1094,10 @@ void NavigationMesh::AddTriMeshGeometry(NavBuildData* build, Geometry* geometry,
     const unsigned char* indexData;
     unsigned vertexSize;
     unsigned indexSize;
-    unsigned elementMask;
+    const PODVector<VertexElement>* elements;
 
-    geometry->GetRawData(vertexData, vertexSize, indexData, indexSize, elementMask);
-    if (!vertexData || !indexData || (elementMask & MASK_POSITION) == 0)
+    geometry->GetRawData(vertexData, vertexSize, indexData, indexSize, elements);
+    if (!vertexData || !indexData || !elements || VertexBuffer::GetElementOffset(*elements, TYPE_VECTOR3, SEM_POSITION) != 0)
         return;
 
     unsigned srcIndexStart = geometry->GetIndexStart();
@@ -1155,9 +1168,9 @@ bool NavigationMesh::BuildTile(Vector<NavigationGeometryInfo>& geometryList, int
     cfg.cs = cellSize_;
     cfg.ch = cellHeight_;
     cfg.walkableSlopeAngle = agentMaxSlope_;
-    cfg.walkableHeight = (int)ceilf(agentHeight_ / cfg.ch);
-    cfg.walkableClimb = (int)floorf(agentMaxClimb_ / cfg.ch);
-    cfg.walkableRadius = (int)ceilf(agentRadius_ / cfg.cs);
+    cfg.walkableHeight = CeilToInt(agentHeight_ / cfg.ch);
+    cfg.walkableClimb = FloorToInt(agentMaxClimb_ / cfg.ch);
+    cfg.walkableRadius = CeilToInt(agentRadius_ / cfg.cs);
     cfg.maxEdgeLen = (int)(edgeMaxLength_ / cellSize_);
     cfg.maxSimplificationError = edgeMaxError_;
     cfg.minRegionArea = (int)sqrtf(regionMinSize_);

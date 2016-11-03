@@ -48,6 +48,7 @@ enum NavmeshPartitionType
 };
 
 class Geometry;
+class NavArea;
 
 struct FindPathData;
 struct NavBuildData;
@@ -77,11 +78,11 @@ enum NavigationPathPointFlag
 
 struct URHO3D_API NavigationPathPoint
 {
-    /// World-space position of the path point
+    /// World-space position of the path point.
     Vector3 position_;
-    /// Detour flag
+    /// Detour flag.
     NavigationPathPointFlag flag_;
-    /// Detour area ID
+    /// Detour area ID.
     unsigned char areaID_;
 };
 
@@ -277,9 +278,9 @@ protected:
     /// Detour navigation mesh query.
     dtNavMeshQuery* navMeshQuery_;
     /// Detour navigation mesh query filter.
-    dtQueryFilter* queryFilter_;
+    UniquePtr<dtQueryFilter> queryFilter_;
     /// Temporary data for finding a path.
-    FindPathData* pathData_;
+    UniquePtr<FindPathData> pathData_;
     /// Tile size.
     int tileSize_;
     /// Cell size.
@@ -314,16 +315,16 @@ protected:
     int numTilesZ_;
     /// Whole navigation mesh bounding box.
     BoundingBox boundingBox_;
-
     /// Type of the heightfield partitioning.
     NavmeshPartitionType partitionType_;
     /// Keep internal build resources for debug draw modes.
     bool keepInterResults_;
-
     /// Debug draw OffMeshConnection components.
     bool drawOffMeshConnections_;
     /// Debug draw NavArea components.
     bool drawNavAreas_;
+    /// NavAreas for this NavMesh
+    Vector<WeakPtr<NavArea> > areas_;
 };
 
 /// Register Navigation library objects.

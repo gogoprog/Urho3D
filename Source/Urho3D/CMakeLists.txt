@@ -40,6 +40,21 @@ if (URHO3D_CLANG_TOOLS OR URHO3D_BINDINGS)
     endif ()
 endif ()
 
+# Check sincosf support
+if (NOT MSVC)   # There is no chance MSVC would pass this one as it does not have libm
+    include (CheckLibraryExists)
+    check_library_exists (m sincosf "" HAVE_SINCOSF)
+endif ()
+if (HAVE_SINCOSF)
+    add_definitions (-DHAVE_SINCOSF)
+else ()
+    include (CheckFunctionExists)
+    check_function_exists (__sincosf HAVE_UNDERSCORE_SINCOSF)
+    if (HAVE_UNDERSCORE_SINCOSF)
+        add_definitions (-DHAVE_UNDERSCORE_SINCOSF)
+    endif ()
+endif ()
+
 add_definitions (-DURHO3D_IS_BUILDING)
 if (ODBC_VERSION AND NOT ODBC_VERSION VERSION_LESS 3)
     add_definitions (-DODBC_3_OR_LATER)
@@ -208,14 +223,19 @@ if (MSVC AND URHO3D_LIB_TYPE STREQUAL SHARED)   # MSVC linker does not have forc
             get_filename_component (INT_DIR ${INT_DIR} PATH)
             if (CMAKE_GENERATOR MATCHES 2008)
                 string (REPLACE /$(OutDir) /${TARGET}.dir/$(ConfigurationName) INT_DIR ${INT_DIR})
-            else ()
+            elseif (VS)
                 string (REPLACE /$(Configuration) /${TARGET}.dir/$(ConfigurationName) INT_DIR ${INT_DIR})
             endif ()
             foreach (SOURCE ${SOURCES})
                 get_filename_component (NAME ${SOURCE} NAME)
                 if (NAME MATCHES \\.c.*$|\\.mm?$|\\.S$|\\.s$)
-                    string (REGEX REPLACE \\.c.*$|\\.mm?$|\\.S$|\\.s$ "" NAME ${NAME})
-                    list (APPEND OBJ_FILES ${INT_DIR}/${NAME}.obj)
+                    if (VS)
+                        string (REGEX REPLACE \\.c.*$|\\.mm?$|\\.S$|\\.s$ "" NAME "${NAME}")
+                        list (APPEND OBJ_FILES ${INT_DIR}/${NAME}.obj)
+                    else ()
+                        string (REGEX REPLACE ^.*/ThirdParty/${TARGET}/ "" SOURCE "${SOURCE}")
+                        list (APPEND OBJ_FILES ${INT_DIR}/CMakeFiles/${TARGET}.dir/${SOURCE}.obj)
+                    endif ()
                 elseif (NAME MATCHES \\.o.*$)
                     list (APPEND OBJ_FILES ${SOURCE})
                 endif ()
@@ -247,6 +267,10 @@ if (URHO3D_LUA)
     # Lua/LuaJIT library depends on its own include dir to be added in the header search path
     # This is more practical than patching its header files in many places to make them work with relative path
     list (APPEND INCLUDE_DIRS ${CMAKE_BINARY_DIR}/${DEST_INCLUDE_DIR}/ThirdParty/Lua${JIT})
+endif ()
+# Workaround for GCC 5.4 and above when building a SHARED lib type for Linux platform to fix the undefined symbol "__cpu_model" issue (see #1519)
+if (CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 5.3.1 AND CMAKE_SYSTEM_NAME STREQUAL Linux AND URHO3D_LIB_TYPE STREQUAL SHARED)  # 5.3.1 was the last known good version
+    list (APPEND LIBS gcc)
 endif ()
 
 # Setup library output path
@@ -405,13 +429,40 @@ if (URHO3D_LIB_TYPE STREQUAL SHARED)
 endif ()
 
 # Install headers for using the Urho3D library
-install_header_files (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION ${DEST_INCLUDE_DIR} FILES_MATCHING PATTERN *.h USE_FILE_SYMLINK)    # Note: the trailing slash is significant
-install_header_files (FILES ${CMAKE_CURRENT_BINARY_DIR}/librevision.h ${CMAKE_CURRENT_BINARY_DIR}/Urho3D.h DESTINATION ${DEST_INCLUDE_DIR})
+install_header_files (FILES ${CMAKE_CURRENT_BINARY_DIR}/Urho3D.h DESTINATION ${DEST_INCLUDE_DIR} ACCUMULATE GENERATED_HEADERS)
+install_header_files (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION ${DEST_INCLUDE_DIR} FILES_MATCHING PATTERN *.h ACCUMULATE URHO_HEADERS)    # Note: the trailing slash is significant
+# Generate the include-all-headers header file even though we do not encourage Urho3D library users to use it
+list (SORT URHO_HEADERS)
+list (REVERSE URHO_HEADERS)
+set (OPTIONAL_SUBS AngelScript Database Lua Navigation Network Physics Urho2D)
+foreach (SUB ${OPTIONAL_SUBS})
+    if (URHO_HEADERS MATCHES "(include/Urho3D/${SUB}[^;]+)")
+        list (FIND URHO_HEADERS ${CMAKE_MATCH_1} FOUND_INDEX)
+        if (FOUND_INDEX GREATER -1)
+            list (INSERT URHO_HEADERS ${FOUND_INDEX} "#endif")
+        endif ()
+    endif ()
+endforeach ()
+list (REVERSE URHO_HEADERS)
+foreach (SUB ${OPTIONAL_SUBS})
+    if (URHO_HEADERS MATCHES "(include/Urho3D/${SUB}[^;]+)")
+        list (FIND URHO_HEADERS ${CMAKE_MATCH_1} FOUND_INDEX)
+        if (FOUND_INDEX GREATER -1)
+            string (TOUPPER ${SUB} SUB)
+            list (INSERT URHO_HEADERS ${FOUND_INDEX} "#if URHO3D_${SUB}")
+        endif ()
+    endif ()
+endforeach ()
+string (REGEX REPLACE "include/[^;]+(DebugNew|Direct3D|ODBC|OpenGL|Precompiled|SQLite|ToluaUtils)[^;]+;" "" URHO_HEADERS "${URHO_HEADERS}")
+string (REGEX REPLACE "include/([^;]+)" "#include <\\1>" URHO_HEADERS "${GENERATED_HEADERS};;${URHO_HEADERS};")
+string (REPLACE ";" \n URHO_HEADERS "${URHO_HEADERS}")
+configure_file (${CMAKE_CURRENT_SOURCE_DIR}/Urho3DAll.h.in ${CMAKE_CURRENT_BINARY_DIR}/Urho3DAll.h)
+install_header_files (FILES ${CMAKE_CURRENT_BINARY_DIR}/Urho3DAll.h ${CMAKE_CURRENT_BINARY_DIR}/librevision.h DESTINATION ${DEST_INCLUDE_DIR})
 
 # Generate platform specific pkg-config file for the benefit of Urho3D library users via SDK without CMake
 get_directory_property (URHO3D_COMPILE_DEFINITIONS DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMPILE_DEFINITIONS)
 # Remove those defines that are only used for building the library and not needed by library user
-list (REMOVE_ITEM URHO3D_COMPILE_DEFINITIONS HAVE_STDINT_H GLEW_STATIC GLEW_NO_GLU URHO3D_IS_BUILDING ODBC_3_OR_LATER ASSET_DIR_INDICATOR)
+list (REMOVE_ITEM URHO3D_COMPILE_DEFINITIONS HAVE_STDINT_H GLEW_STATIC GLEW_NO_GLU HAVE_SINCOSF HAVE_UNDERSCORE_SINCOSF URHO3D_IS_BUILDING ODBC_3_OR_LATER ASSET_DIR_INDICATOR)
 if (ABSOLUTE_PATH_LIBS)
     string (REPLACE ";" "\" \"" URHO3D_ABS_PATH_LIBS "\"${ABSOLUTE_PATH_LIBS}\"")   # Note: need to always "stringify" a variable in list context for replace to work correctly, besides the list could be empty
     string (REPLACE "${SYSROOT}" "\${pc_sysrootdir}" URHO3D_ABS_PATH_LIBS "${URHO3D_ABS_PATH_LIBS}")
@@ -452,7 +503,11 @@ if (URHO3D_LUA)
     set (ENGINE_INCLUDE_DIRS "${ENGINE_INCLUDE_DIRS} ${DASH}I\"\${includedir}/Urho3D/ThirdParty/Lua${JIT}\"")
 endif ()
 # todo: Reevaluate the command below when the CMake minimum required version is set to 2.8.12 (and remove only when the deprecated add_compiler_export_flags() is not used anymore)
-string (REGEX REPLACE " -fvisibility[^ ]+" "" CLEANED_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})   # Remove visibility compiler options that are only used for building the library
+# Remove compiler flags that are only used for building the library
+string (REGEX REPLACE " -fvisibility[^ ]+" "" CLEANED_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string (REGEX REPLACE " -include \"[^\"]+\"" "" CLEANED_CMAKE_CXX_FLAGS "${CLEANED_CMAKE_CXX_FLAGS}")
+string (REPLACE "${SYSROOT}" "\${pc_sysrootdir}" CLEANED_CMAKE_CXX_FLAGS "${CLEANED_CMAKE_CXX_FLAGS}")
+string (REPLACE "${SYSROOT}" "\${pc_sysrootdir}" CLEANED_CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
 configure_file (${CMAKE_CURRENT_SOURCE_DIR}/Urho3D.pc.in ${CMAKE_CURRENT_BINARY_DIR}/Urho3D.pc${PC_SUFFIX} @ONLY)
 if (MSVC)
     add_custom_command (TARGET ${TARGET_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -DLIB_NAME=$<TARGET_LINKER_FILE_NAME:${TARGET_NAME}> -P ${CMAKE_SOURCE_DIR}/CMake/Modules/AdjustPkgConfigForMSVC.cmake)
@@ -468,7 +523,7 @@ if (ANDROID_NDK_GDB)
     add_custom_command (TARGET ${TARGET_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${TARGET_NAME}> ${NDK_GDB_SOLIB_PATH}
         COMMENT "Copying Urho3D library with debug symbols to ${NDK_GDB_SOLIB_PATH} directory")
 endif ()
-if (URHO3D_LIB_TYPE STREQUAL SHARED AND (ANDROID OR RPI OR IOS))
+if (URHO3D_LIB_TYPE STREQUAL SHARED AND (ANDROID OR ARM))
     # Strip the output shared library for embedded devices
     add_custom_command (TARGET ${TARGET_NAME} POST_BUILD COMMAND ${CMAKE_STRIP} $<TARGET_FILE:${TARGET_NAME}>
         COMMENT "Stripping Urho3D shared library")

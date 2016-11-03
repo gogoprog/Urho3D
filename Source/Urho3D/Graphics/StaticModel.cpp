@@ -31,6 +31,7 @@
 #include "../Graphics/Material.h"
 #include "../Graphics/OcclusionBuffer.h"
 #include "../Graphics/OctreeQuery.h"
+#include "../Graphics/VertexBuffer.h"
 #include "../IO/FileSystem.h"
 #include "../IO/Log.h"
 #include "../Resource/ResourceCache.h"
@@ -210,11 +211,11 @@ bool StaticModel::DrawOcclusion(OcclusionBuffer* buffer)
         unsigned vertexSize;
         const unsigned char* indexData;
         unsigned indexSize;
-        unsigned elementMask;
+        const PODVector<VertexElement>* elements;
 
-        geometry->GetRawData(vertexData, vertexSize, indexData, indexSize, elementMask);
+        geometry->GetRawData(vertexData, vertexSize, indexData, indexSize, elements);
         // Check for valid geometry data
-        if (!vertexData || !indexData)
+        if (!vertexData || !indexData || !elements || VertexBuffer::GetElementOffset(*elements, TYPE_VECTOR3, SEM_POSITION) != 0)
             continue;
 
         unsigned indexStart = geometry->GetIndexStart();
@@ -239,6 +240,12 @@ void StaticModel::SetModel(Model* model)
         URHO3D_LOGWARNING("StaticModel::SetModel() called on AnimatedModel. Redirecting to AnimatedModel::SetModel()");
         AnimatedModel* animatedModel = static_cast<AnimatedModel*>(this);
         animatedModel->SetModel(model);
+        return;
+    }
+
+    if (!node_)
+    {
+        URHO3D_LOGERROR("Can not set model while model component is not attached to a scene node");
         return;
     }
 
@@ -396,7 +403,7 @@ const ResourceRefList& StaticModel::GetMaterialsAttr() const
 {
     materialsAttr_.names_.Resize(batches_.Size());
     for (unsigned i = 0; i < batches_.Size(); ++i)
-        materialsAttr_.names_[i] = GetResourceName(batches_[i].material_);
+        materialsAttr_.names_[i] = GetResourceName(GetMaterial(i));
 
     return materialsAttr_;
 }

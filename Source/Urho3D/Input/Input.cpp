@@ -30,7 +30,6 @@
 #include "../Core/StringUtils.h"
 #include "../Graphics/Graphics.h"
 #include "../Graphics/GraphicsEvents.h"
-#include "../Graphics/GraphicsImpl.h"
 #include "../Input/Input.h"
 #include "../IO/FileSystem.h"
 #include "../IO/Log.h"
@@ -38,6 +37,8 @@
 #include "../Resource/ResourceCache.h"
 #include "../UI/Text.h"
 #include "../UI/UI.h"
+
+#include <SDL/SDL.h>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/html5.h>
@@ -48,7 +49,8 @@
 extern "C" int SDL_AddTouch(SDL_TouchID touchID, const char* name);
 
 // Use a "click inside window to focus" mechanism on desktop platforms when the mouse cursor is hidden
-#if defined(_WIN32) || (defined(__APPLE__) && !defined(IOS)) || (defined(__linux__) && !defined(ANDROID) && !defined(RPI))
+// TODO: For now, in this particular case only, treat all the ARM on Linux as "desktop" (e.g. RPI, odroid, etc), revisit this again when we support "mobile" ARM on Linux
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(IOS)) || (defined(__linux__) && !defined(__ANDROID__))
 #define REQUIRE_CLICK_TO_FOCUS
 #endif
 
@@ -67,9 +69,9 @@ const unsigned TOUCHID_MAX = 32;
 int ConvertSDLKeyCode(int keySym, int scanCode)
 {
     if (scanCode == SCANCODE_AC_BACK)
-        return KEY_ESC;
+        return KEY_ESCAPE;
     else
-        return SDL_toupper(keySym);
+        return SDL_tolower(keySym);
 }
 
 UIElement* TouchState::GetTouchedElement()
@@ -343,8 +345,6 @@ Input::Input(Context* context) :
     minimized_(false),
     focusedThisFrame_(false),
     suppressNextMouseMove_(false),
-    inResize_(false),
-    screenModeChanged_(false),
     initialized_(false)
 {
     for (int i = 0; i < TOUCHID_MAX; i++)
@@ -352,7 +352,7 @@ Input::Input(Context* context) :
 
     SubscribeToEvent(E_SCREENMODE, URHO3D_HANDLER(Input, HandleScreenMode));
 
-#if defined(ANDROID)
+#if defined(__ANDROID__)
     SDL_SetHint(SDL_HINT_ANDROID_SEPARATE_MOUSE_AND_TOUCH, "1");
 #elif defined(__EMSCRIPTEN__)
     emscriptenInput_ = new EmscriptenInput(this);
@@ -364,10 +364,6 @@ Input::Input(Context* context) :
 
 Input::~Input()
 {
-#ifdef __EMSCRIPTEN__
-    delete emscriptenInput_;
-    emscriptenInput_ = 0;
-#endif
 }
 
 void Input::Update()
@@ -392,21 +388,18 @@ void Input::Update()
 #endif
 
     // Check for focus change this frame
-    SDL_Window* window = graphics_->GetImpl()->GetWindow();
+    SDL_Window* window = graphics_->GetWindow();
     unsigned flags = window ? SDL_GetWindowFlags(window) & (SDL_WINDOW_INPUT_FOCUS | SDL_WINDOW_MOUSE_FOCUS) : 0;
 #ifndef __EMSCRIPTEN__
     if (window)
     {
 #ifdef REQUIRE_CLICK_TO_FOCUS
         // When using the "click to focus" mechanism, only focus automatically in fullscreen or non-hidden mouse mode
-        if (!inputFocus_ && ((mouseVisible_ || mouseMode_ == MM_FREE) || graphics_->GetFullscreen() || screenModeChanged_) && (flags & SDL_WINDOW_INPUT_FOCUS))
+        if (!inputFocus_ && ((mouseVisible_ || mouseMode_ == MM_FREE) || graphics_->GetFullscreen()) && (flags & SDL_WINDOW_INPUT_FOCUS))
 #else
         if (!inputFocus_ && (flags & SDL_WINDOW_INPUT_FOCUS))
 #endif
-        {
-            screenModeChanged_ = false;
             focusedThisFrame_ = true;
-        }
 
         if (focusedThisFrame_)
             GainFocus();
@@ -560,7 +553,7 @@ void Input::SetMouseVisible(bool enable, bool suppressEvent)
                     SetMouseModeAbsolute(SDL_TRUE);
 #else
                 if (mouseMode_ == MM_ABSOLUTE && !emscriptenPointerLock_)
-                    emscriptenInput_->RequestPointerLock(MM_ABSOLUTE, suppressEvent);      
+                    emscriptenInput_->RequestPointerLock(MM_ABSOLUTE, suppressEvent);
 #endif
                 SDL_ShowCursor(SDL_FALSE);
                 mouseVisible_ = false;
@@ -568,7 +561,7 @@ void Input::SetMouseVisible(bool enable, bool suppressEvent)
             else if (mouseMode_ != MM_RELATIVE)
             {
                 SetMouseGrabbed(false, suppressEvent);
-                
+
                 SDL_ShowCursor(SDL_TRUE);
                 mouseVisible_ = true;
 
@@ -595,13 +588,18 @@ void Input::SetMouseVisible(bool enable, bool suppressEvent)
                     {
                         SetMousePosition(lastVisibleMousePosition_);
                         lastMousePosition_ = lastVisibleMousePosition_;
-                    } 
+                    }
                 }
 #else
                 if (mouseMode_ == MM_ABSOLUTE && emscriptenPointerLock_)
                     emscriptenInput_->ExitPointerLock(suppressEvent);
 #endif
             }
+        }
+        else
+        {
+            // Allow to set desired mouse visibility before initialization
+            mouseVisible_ = enable;
         }
 
         if (mouseVisible_ != startMouseVisible)
@@ -770,10 +768,13 @@ void Input::SetMouseModeEmscripten(MouseMode mode, bool suppressEvent)
 
 void Input::SetMouseGrabbed(bool grab, bool suppressEvent)
 {
+// To not interfere with touch UI operation, never report the mouse as grabbed on Android / iOS
+#if !defined(__ANDROID__) && !defined(IOS)
     mouseGrabbed_ = grab;
 
     if (!suppressEvent)
         lastMouseGrabbed_ = grab;
+#endif
 }
 
 void Input::ResetMouseGrabbed()
@@ -785,14 +786,14 @@ void Input::ResetMouseGrabbed()
 #ifndef __EMSCRIPTEN__
 void Input::SetMouseModeAbsolute(SDL_bool enable)
 {
-    SDL_Window* const window = graphics_->GetImpl()->GetWindow();
+    SDL_Window* const window = graphics_->GetWindow();
 
     SDL_SetWindowGrab(window, enable);
 }
 
 void Input::SetMouseModeRelative(SDL_bool enable)
 {
-    SDL_Window* const window = graphics_->GetImpl()->GetWindow();
+    SDL_Window* const window = graphics_->GetWindow();
 
     int result = SDL_SetRelativeMouseMode(enable);
     sdlMouseRelative_ = enable && (result == 0);
@@ -811,47 +812,55 @@ void Input::SetMouseMode(MouseMode mode, bool suppressEvent)
 #else
     if (mode != mouseMode_)
     {
-        SuppressNextMouseMove();
-
-        mouseMode_ = mode;
-        SDL_Window* const window = graphics_->GetImpl()->GetWindow();
-
-        UI* const ui = GetSubsystem<UI>();
-        Cursor* const cursor = ui->GetCursor();
-
-        // Handle changing from previous mode
-        if (previousMode == MM_ABSOLUTE)
+        if (initialized_)
         {
-            if (!mouseVisible_)
-                SetMouseModeAbsolute(SDL_FALSE);
-        }
-        if (previousMode == MM_RELATIVE)
-        {
-            SetMouseModeRelative(SDL_FALSE);
-            ResetMouseVisible();
-        }
-        else if (previousMode == MM_WRAP)
-            SDL_SetWindowGrab(window, SDL_FALSE);
+            SuppressNextMouseMove();
 
-        // Handle changing to new mode
-        if (mode == MM_ABSOLUTE)
-        {
-            if (!mouseVisible_)
-                SetMouseModeAbsolute(SDL_TRUE);
-        }
-        else if (mode == MM_RELATIVE)
-        {
-            SetMouseVisible(false, true);
-            SetMouseModeRelative(SDL_TRUE);
-        }
-        else if (mode == MM_WRAP)
-        {
-            SetMouseGrabbed(true, suppressEvent);
-            SDL_SetWindowGrab(window, SDL_TRUE);
-        }
+            mouseMode_ = mode;
+            SDL_Window* const window = graphics_->GetWindow();
 
-        if (mode != MM_WRAP)
-            SetMouseGrabbed(!(mouseVisible_ || (cursor && cursor->IsVisible())), suppressEvent);
+            UI* const ui = GetSubsystem<UI>();
+            Cursor* const cursor = ui->GetCursor();
+
+            // Handle changing from previous mode
+            if (previousMode == MM_ABSOLUTE)
+            {
+                if (!mouseVisible_)
+                    SetMouseModeAbsolute(SDL_FALSE);
+            }
+            if (previousMode == MM_RELATIVE)
+            {
+                SetMouseModeRelative(SDL_FALSE);
+                ResetMouseVisible();
+            }
+            else if (previousMode == MM_WRAP)
+                SDL_SetWindowGrab(window, SDL_FALSE);
+
+            // Handle changing to new mode
+            if (mode == MM_ABSOLUTE)
+            {
+                if (!mouseVisible_)
+                    SetMouseModeAbsolute(SDL_TRUE);
+            }
+            else if (mode == MM_RELATIVE)
+            {
+                SetMouseVisible(false, true);
+                SetMouseModeRelative(SDL_TRUE);
+            }
+            else if (mode == MM_WRAP)
+            {
+                SetMouseGrabbed(true, suppressEvent);
+                SDL_SetWindowGrab(window, SDL_TRUE);
+            }
+
+            if (mode != MM_WRAP)
+                SetMouseGrabbed(!(mouseVisible_ || (cursor && cursor->IsVisible())), suppressEvent);
+        }
+        else
+        {
+            // Allow to set desired mouse mode before initialization
+            mouseMode_ = mode;
+        }
     }
 #endif
 
@@ -982,7 +991,7 @@ SDL_JoystickID Input::AddScreenJoystick(XMLFile* layoutFile, XMLFile* styleFile)
             ++numButtons;
 
             // Check whether the button has key binding
-            Text* text = dynamic_cast<Text*>(element->GetChild("KeyBinding", false));
+            Text* text = element->GetChildDynamicCast<Text>("KeyBinding", false);
             if (text)
             {
                 text->SetVisible(false);
@@ -1009,7 +1018,7 @@ SDL_JoystickID Input::AddScreenJoystick(XMLFile* layoutFile, XMLFile* styleFile)
             }
 
             // Check whether the button has mouse button binding
-            text = dynamic_cast<Text*>(element->GetChild("MouseButtonBinding", false));
+            text = element->GetChildDynamicCast<Text>("MouseButtonBinding", false);
             if (text)
             {
                 text->SetVisible(false);
@@ -1034,12 +1043,12 @@ SDL_JoystickID Input::AddScreenJoystick(XMLFile* layoutFile, XMLFile* styleFile)
         {
             ++numHats;
 
-            Text* text = dynamic_cast<Text*>(element->GetChild("KeyBinding", false));
+            Text* text = element->GetChildDynamicCast<Text>("KeyBinding", false);
             if (text)
             {
                 text->SetVisible(false);
                 String keyBinding = text->GetText();
-                int mappedKeyBinding[4] = {'W', 'S', 'A', 'D'};
+                int mappedKeyBinding[4] = {KEY_W, KEY_S, KEY_A, KEY_D};
                 Vector<String> keyBindings;
                 if (keyBinding.Contains(' '))   // e.g.: "UP DOWN LEFT RIGHT"
                     keyBindings = keyBinding.Split(' ');    // Attempt to split the text using ' ' as separator
@@ -1142,7 +1151,7 @@ void Input::SetScreenKeyboardVisible(bool enable)
 
 void Input::SetTouchEmulation(bool enable)
 {
-#if !defined(ANDROID) && !defined(IOS)
+#if !defined(__ANDROID__) && !defined(IOS)
     if (enable != touchEmulation_)
     {
         if (enable)
@@ -1285,12 +1294,12 @@ String Input::GetScancodeName(int scancode) const
 
 bool Input::GetKeyDown(int key) const
 {
-    return keyDown_.Contains(SDL_toupper(key));
+    return keyDown_.Contains(SDL_tolower(key));
 }
 
 bool Input::GetKeyPress(int key) const
 {
-    return keyPress_.Contains(SDL_toupper(key));
+    return keyPress_.Contains(SDL_tolower(key));
 }
 
 bool Input::GetScancodeDown(int scancode) const
@@ -1410,6 +1419,17 @@ JoystickState* Input::GetJoystickByIndex(unsigned index)
     return 0;
 }
 
+JoystickState* Input::GetJoystickByName(const String& name)
+{
+    for (HashMap<SDL_JoystickID, JoystickState>::Iterator i = joysticks_.Begin(); i != joysticks_.End(); ++i)
+    {
+        if (i->second_.name_ == name)
+            return &(i->second_);
+    }
+
+    return 0;
+}
+
 JoystickState* Input::GetJoystick(SDL_JoystickID id)
 {
     HashMap<SDL_JoystickID, JoystickState>::Iterator i = joysticks_.Find(id);
@@ -1431,7 +1451,7 @@ bool Input::IsScreenKeyboardVisible() const
 {
     if (graphics_)
     {
-        SDL_Window* window = graphics_->GetImpl()->GetWindow();
+        SDL_Window* window = graphics_->GetWindow();
         return SDL_IsScreenKeyboardShown(window) != SDL_FALSE;
     }
     else
@@ -1471,7 +1491,7 @@ void Input::Initialize()
     // Set the initial activation
     initialized_ = true;
 #ifndef __EMSCRIPTEN__
-    focusedThisFrame_ = true;
+    GainFocus();
 #else
     // Note: Page visibility and focus are slightly different, however we can't query last focus with Emscripten (1.29.0)
     if (emscriptenInput_->IsVisible())
@@ -1487,7 +1507,7 @@ void Input::Initialize()
 #ifdef __EMSCRIPTEN__
     SubscribeToEvent(E_ENDFRAME, URHO3D_HANDLER(Input, HandleEndFrame));
 #endif
-    
+
     URHO3D_LOGINFO("Initialized input");
 }
 
@@ -1768,7 +1788,7 @@ void Input::SetMousePosition(const IntVector2& position)
     if (!graphics_)
         return;
 
-    SDL_WarpMouseInWindow(graphics_->GetImpl()->GetWindow(), position.x_, position.y_);
+    SDL_WarpMouseInWindow(graphics_->GetWindow(), position.x_, position.y_);
 }
 
 void Input::CenterMousePosition()
@@ -1821,10 +1841,22 @@ void Input::HandleSDLEvent(void* sdlEvent)
             return;
     }
 
+    // Possibility for custom handling or suppression of default handling for the SDL event
+    {
+        using namespace SDLRawInput;
+
+        VariantMap eventData = GetEventDataMap();
+        eventData[P_SDLEVENT] = &evt;
+        eventData[P_CONSUMED] = false;
+        SendEvent(E_SDLRAWINPUT, eventData);
+
+        if (eventData[P_CONSUMED].GetBool())
+            return;
+    }
+
     switch (evt.type)
     {
         case SDL_KEYDOWN:
-            // Convert to uppercase to match Win32 virtual key codes
 #ifdef __EMSCRIPTEN__
         SetKey(ConvertSDLKeyCode(evt.key.keysym.sym, evt.key.keysym.scancode), evt.key.keysym.scancode, true);
 #else
@@ -1962,7 +1994,8 @@ void Input::HandleSDLEvent(void* sdlEvent)
             int touchID = GetTouchIndexFromID(evt.tfinger.fingerId & 0x7ffffff);
             TouchState& state = touches_[touchID];
             state.touchID_ = touchID;
-            state.position_ = IntVector2((int)(evt.tfinger.x), (int)(evt.tfinger.y));
+            state.lastPosition_ = state.position_ = IntVector2((int)(evt.tfinger.x * graphics_->GetWidth()),
+                (int)(evt.tfinger.y * graphics_->GetHeight()));
             state.delta_ = IntVector2::ZERO;
             state.pressure_ = evt.tfinger.pressure;
 
@@ -2013,7 +2046,8 @@ void Input::HandleSDLEvent(void* sdlEvent)
                 break;
             TouchState& state = touches_[touchID];
             state.touchID_ = touchID;
-            state.position_ = IntVector2((int)(evt.tfinger.x), (int)(evt.tfinger.y));
+            state.position_ = IntVector2((int)(evt.tfinger.x * graphics_->GetWidth()),
+                (int)(evt.tfinger.y * graphics_->GetHeight()));
             state.delta_ = state.position_ - state.lastPosition_;
             state.pressure_ = evt.tfinger.pressure;
 
@@ -2023,8 +2057,8 @@ void Input::HandleSDLEvent(void* sdlEvent)
             eventData[P_TOUCHID] = touchID;
             eventData[P_X] = state.position_.x_;
             eventData[P_Y] = state.position_.y_;
-            eventData[P_DX] = (int)(evt.tfinger.dx);
-            eventData[P_DY] = (int)(evt.tfinger.dy);
+            eventData[P_DX] = (int)(evt.tfinger.dx * graphics_->GetWidth());
+            eventData[P_DY] = (int)(evt.tfinger.dy * graphics_->GetHeight());
             eventData[P_PRESSURE] = state.pressure_;
             SendEvent(E_TOUCHMOVE, eventData);
 
@@ -2263,7 +2297,7 @@ void Input::HandleSDLEvent(void* sdlEvent)
 
             case SDL_WINDOWEVENT_MAXIMIZED:
             case SDL_WINDOWEVENT_RESTORED:
-#if defined(IOS) || defined (ANDROID)
+#if defined(IOS) || defined (__ANDROID__)
                 // On iOS we never lose the GL context, but may have done GPU object changes that could not be applied yet. Apply them now
                 // On Android the old GL context may be lost already, restore GPU objects to the new GL context
                 graphics_->Restore();
@@ -2273,12 +2307,10 @@ void Input::HandleSDLEvent(void* sdlEvent)
                 break;
 
             case SDL_WINDOWEVENT_RESIZED:
-                inResize_ = true;
-                graphics_->WindowResized();
-                inResize_ = false;
+                graphics_->OnWindowResized();
                 break;
             case SDL_WINDOWEVENT_MOVED:
-                graphics_->WindowMoved();
+                graphics_->OnWindowMoved();
                 break;
 
             default: break;
@@ -2313,17 +2345,8 @@ void Input::HandleScreenMode(StringHash eventType, VariantMap& eventData)
 
     // Re-enable cursor clipping, and re-center the cursor (if needed) to the new screen size, so that there is no erroneous
     // mouse move event. Also get new window ID if it changed
-    SDL_Window* window = graphics_->GetImpl()->GetWindow();
+    SDL_Window* window = graphics_->GetWindow();
     windowID_ = SDL_GetWindowID(window);
-
-    // If screen mode happens due to mouse drag resize, do not recenter the mouse as that would lead to erratic window sizes
-    if (!mouseVisible_ && mouseMode_ != MM_FREE && !inResize_)
-    {
-        CenterMousePosition();
-        focusedThisFrame_ = true;
-    }
-    else
-        lastMousePosition_ = GetMousePosition();
 
     // Resize screen joysticks to new screen size
     for (HashMap<SDL_JoystickID, JoystickState>::Iterator i = joysticks_.Begin(); i != joysticks_.End(); ++i)
@@ -2333,21 +2356,19 @@ void Input::HandleScreenMode(StringHash eventType, VariantMap& eventData)
             screenjoystick->SetSize(graphics_->GetWidth(), graphics_->GetHeight());
     }
 
-    if (graphics_->GetFullscreen())
+    if (graphics_->GetFullscreen() || !mouseVisible_)
         focusedThisFrame_ = true;
 
     // After setting a new screen mode we should not be minimized
     minimized_ = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0;
-
-    // Remember that screen mode changed in case we lose focus (needed on Linux)
-    if (!inResize_)
-        screenModeChanged_ = true;
 }
 
 void Input::HandleBeginFrame(StringHash eventType, VariantMap& eventData)
 {
     // Update input right at the beginning of the frame
+    SendEvent(E_INPUTBEGIN);
     Update();
+    SendEvent(E_INPUTEND);
 }
 
 #ifdef __EMSCRIPTEN__
@@ -2403,7 +2424,7 @@ void Input::HandleScreenJoystickTouch(StringHash eventType, VariantMap& eventDat
             if (!keyBindingVar.IsEmpty())
             {
                 evt.type = eventType == E_TOUCHBEGIN ? SDL_KEYDOWN : SDL_KEYUP;
-                evt.key.keysym.sym = keyBindingVar.GetInt();
+                evt.key.keysym.sym = ToLower(keyBindingVar.GetInt());
                 evt.key.keysym.scancode = SDL_SCANCODE_UNKNOWN;
             }
             if (!mouseButtonBindingVar.IsEmpty())
@@ -2446,7 +2467,7 @@ void Input::HandleScreenJoystickTouch(StringHash eventType, VariantMap& eventDat
         }
         else
         {
-            // Hat is binded by 4 integers representing keysyms for 'W', 'S', 'A', 'D' or something similar
+            // Hat is binded by 4 integers representing keysyms for 'w', 's', 'a', 'd' or something similar
             IntRect keyBinding = keyBindingVar.GetIntRect();
 
             if (eventType == E_TOUCHEND)
