@@ -143,16 +143,8 @@ protected:
     Color color_;
     /// Use hot spot flag.
     bool useHotSpot_;
-    /// Use draw rectangle flag.
-    bool useDrawRect_;
-    /// Use texture rectangle flag.
-    bool useTextureRect_;
     /// Hot spot.
     Vector2 hotSpot_;
-    /// Draw rectangle.
-    Rect drawRect_;
-    /// Texture rectangle.
-    Rect textureRect_;
     /// Custom material.
     SharedPtr<Material> customMaterial_;
     /// Draw rectangle.
