@@ -302,7 +302,7 @@ public:
 
     /// Return whether the main window is using sRGB conversion on write.
     bool GetSRGB() const { return sRGB_; }
-
+    
     /// Return whether rendering output is dithered.
     bool GetDither() const;
 
@@ -518,8 +518,6 @@ public:
     static unsigned GetRGBFormat();
     /// Return the API-specific RGBA texture format.
     static unsigned GetRGBAFormat();
-    /// Return the API-specific RGBA texture format.
-    static unsigned GetBGRAFormat();
     /// Return the API-specific RGBA 16-bit texture format.
     static unsigned GetRGBA16Format();
     /// Return the API-specific RGBA 16-bit float texture format.

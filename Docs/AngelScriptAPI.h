@@ -246,6 +246,7 @@ String category;
 Color color;
 Material customMaterial;
 float drawDistance;
+Rect drawRect;
 bool enabled;
 /* readonly */
 bool enabledEffective;
@@ -277,11 +278,14 @@ uint shadowMask;
 float speed;
 Sprite2D sprite;
 bool temporary;
+Rect textureRect;
 /* readonly */
 StringHash type;
 /* readonly */
 String typeName;
+bool useDrawRect;
 bool useHotSpot;
+bool useTextureRect;
 uint viewMask;
 /* readonly */
 int weakRefs;
@@ -11357,6 +11361,7 @@ String category;
 Color color;
 Material customMaterial;
 float drawDistance;
+Rect drawRect;
 bool enabled;
 /* readonly */
 bool enabledEffective;
@@ -11385,11 +11390,14 @@ float shadowDistance;
 uint shadowMask;
 Sprite2D sprite;
 bool temporary;
+Rect textureRect;
 /* readonly */
 StringHash type;
 /* readonly */
 String typeName;
+bool useDrawRect;
 bool useHotSpot;
+bool useTextureRect;
 uint viewMask;
 /* readonly */
 int weakRefs;
@@ -13266,6 +13274,7 @@ const Matrix3& GetMatrix3() const;
 const Matrix3x4& GetMatrix3x4() const;
 const Matrix4& GetMatrix4() const;
 const Quaternion& GetQuaternion() const;
+const Rect& GetRect() const;
 const ResourceRef& GetResourceRef() const;
 const ResourceRefList& GetResourceRefList() const;
 const String& GetString() const;
@@ -14822,6 +14831,33 @@ VAR_MATRIX3X4,
 VAR_MATRIX4,
 VAR_DOUBLE,
 VAR_STRINGVECTOR,
+VAR_RECT,
+};
+
+enum VertexElementSemantic
+{
+SEM_POSITION,
+SEM_NORMAL,
+SEM_BINORMAL,
+SEM_TANGENT,
+SEM_TEXCOORD,
+SEM_COLOR,
+SEM_BLENDWEIGHTS,
+SEM_BLENDINDICES,
+SEM_OBJECTINDEX,
+MAX_VERTEX_ELEMENT_SEMANTICS,
+};
+
+enum VertexElementType
+{
+TYPE_INT,
+TYPE_FLOAT,
+TYPE_VECTOR2,
+TYPE_VECTOR3,
+TYPE_VECTOR4,
+TYPE_UBYTE4,
+TYPE_UBYTE4_NORM,
+MAX_VERTEX_ELEMENT_TYPES,
 };
 
 enum VertexElementSemantic

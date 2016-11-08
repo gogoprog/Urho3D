@@ -60,8 +60,12 @@ public:
     void SetColor(const Color& color);
     /// Set alpha.
     void SetAlpha(float alpha);
-    /// Set use hot spot.
+    /// Set whether to use custom-defined hot spot.
     void SetUseHotSpot(bool useHotSpot);
+    /// Set whether to use custom-defined draw rectangle.
+    void SetUseDrawRect(bool useDrawRect);
+    /// Set whether to use custom-defined texture rectangle.
+    void SetUseTextureRect(bool useTextureRect);
     /// Set hot spot.
     void SetHotSpot(const Vector2& hotspot);
     /// Set custom material.
@@ -91,8 +95,14 @@ public:
     /// Return alpha.
     float GetAlpha() const { return color_.a_; }
 
-    /// Return use hot spot.
+    /// Return whether to use custom-defined hot spot.
     bool GetUseHotSpot() const { return useHotSpot_; }
+
+    /// Return whether to use custom-defined draw rectangle.
+    bool GetUseDrawRect() const { return useDrawRect_; }
+
+    /// Return whether to use custom-defined texture rectangle.
+    bool GetUseTextureRect() const { return useTextureRect_; }
 
     /// Return hot spot.
     const Vector2& GetHotSpot() const { return hotSpot_; }
@@ -131,10 +141,18 @@ protected:
     bool flipY_;
     /// Color.
     Color color_;
-    /// Use hot spot.
+    /// Use hot spot flag.
     bool useHotSpot_;
+    /// Use draw rectangle flag.
+    bool useDrawRect_;
+    /// Use texture rectangle flag.
+    bool useTextureRect_;
     /// Hot spot.
     Vector2 hotSpot_;
+    /// Draw rectangle.
+    Rect drawRect_;
+    /// Texture rectangle.
+    Rect textureRect_;
     /// Custom material.
     SharedPtr<Material> customMaterial_;
     /// Draw rectangle.
