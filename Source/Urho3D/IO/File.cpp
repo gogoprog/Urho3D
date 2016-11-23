@@ -33,6 +33,11 @@
 #include <SDL/SDL_rwops.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/val.h>
+#endif
+
 #include <cstdio>
 #include <LZ4/lz4.h>
 
@@ -432,7 +437,7 @@ bool File::OpenInternal(const String& fileName, FileMode mode, bool fromPackage)
     compressed_ = false;
     readSyncNeeded_ = false;
     writeSyncNeeded_ = false;
-    
+
     FileSystem* fileSystem = GetSubsystem<FileSystem>();
     if (fileSystem && !fileSystem->CheckAccess(GetPath(fileName)))
     {
@@ -445,6 +450,50 @@ bool File::OpenInternal(const String& fileName, FileMode mode, bool fromPackage)
         URHO3D_LOGERROR("Could not open file with empty name");
         return false;
     }
+
+#ifdef __EMSCRIPTEN__
+    if (mode == FILE_READ)
+    {
+        String  js;
+
+        js += "var fileName = '" + fileName + "';";
+        js += R"(
+            window.fileExists = null;
+            $.ajax({
+                async: false,
+                type: 'HEAD',
+                success: function() { window.fileExists = true; },
+                error: function() { window.fileExists = false; },
+                url: fileName
+            });
+
+            if(window.fileExists)
+            {
+                var fileRequest = new XMLHttpRequest();
+                fileRequest.open("GET", fileName, false);
+                fileRequest.onload = function (oEvent) {
+                    var str = fileRequest.responseText;
+                    var buf = new ArrayBuffer(str.length);
+                    var bufView = new Uint8Array(buf);
+
+                    for (var i=0, strLen=str.length; i<strLen; i++) {
+                        bufView[i] = str.charCodeAt(i) & 0xff;
+                    }
+
+                    FS.writeFile(fileName, bufView, { encoding: 'binary' });
+                };
+
+                fileRequest.overrideMimeType('text\/plain; charset=x-user-defined');
+                fileRequest.onerror = function() {
+                };
+
+                fileRequest.send(null);
+            }
+        )";
+
+    emscripten_run_script(js.CString());
+}
+#endif
 
 #ifdef __ANDROID__
     if (URHO3D_IS_ASSET(fileName))

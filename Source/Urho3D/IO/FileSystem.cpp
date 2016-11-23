@@ -66,6 +66,12 @@
 #include <mach-o/dyld.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/bind.h>
+#include <emscripten/val.h>
+#endif
+
 extern "C"
 {
 #ifdef __ANDROID__
@@ -589,6 +595,33 @@ bool FileSystem::FileExists(const String& fileName) const
 {
     if (!CheckAccess(GetPath(fileName)))
         return false;
+
+#ifdef __EMSCRIPTEN__
+    String  js;
+    js += R"(
+        window.result = null;
+        $.ajax({
+            async: false,
+            type: 'HEAD',
+            success: function() { window.result = true; },
+            error: function() { window.result = false; },
+            url: ')";
+
+    js += fileName;
+
+    js += R"('
+        });
+    )";
+
+    emscripten_run_script(js.CString());
+
+    emscripten::val result = emscripten::val::global("result");
+
+    if (result.as<bool>())
+    {
+        return true;
+    }
+#endif
 
 #ifdef __ANDROID__
     if (URHO3D_IS_ASSET(fileName))
