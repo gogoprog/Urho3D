@@ -480,11 +480,29 @@ bool File::OpenInternal(const String& fileName, FileMode mode, bool fromPackage)
                         bufView[i] = str.charCodeAt(i) & 0xff;
                     }
 
+                    var path = fileName.substring(0, fileName.lastIndexOf('/'));
+                    var paths = path.split('/');
+                    var currentPath = '';
+
+                    for(var i=0; i<paths.length; ++i)
+                    {
+                        currentPath += '/';
+                        currentPath += paths[i];
+
+                        try {
+                            FS.mkdir(currentPath);
+                        } catch(e) {
+
+                        }
+                    }
+
                     FS.writeFile(fileName, bufView, { encoding: 'binary' });
+                    console.log("Downloaded '" + fileName + "' from http.");
                 };
 
                 fileRequest.overrideMimeType('text\/plain; charset=x-user-defined');
                 fileRequest.onerror = function() {
+                    console.log("Error: Failed to download '" + fileName + "' from http.");
                 };
 
                 fileRequest.send(null);
